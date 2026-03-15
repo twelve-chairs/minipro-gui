@@ -1,5 +1,7 @@
 #include "HexView.h"
 
+const int chars_per_line = 32; // (16 bytes * 2)
+
 HexView::HexView(QObject *parent) : QAbstractTableModel(parent) {
   clearHexTable();
   monospace_font.setFamily("Courier New");
@@ -57,8 +59,11 @@ QVariant HexView::headerData(int section, Qt::Orientation orientation, int role)
       default:break;
     }
   }
+
   if (orientation == Qt::Vertical) {
-    return QVariant::fromValue(section + 1);
+    int offset_val = section * chars_per_line;
+    //generate the starting offset for each row of the table in hex
+    return QVariant::fromValue(QString("%1").arg(offset_val,6,16,QLatin1Char('0')).toUpper()); 
   }
   return QVariant();
 }
@@ -82,11 +87,9 @@ void HexView::buildHexTable(QString temp_file_content) {
   QString ascii_string_line;
   QVector<QVector<QString>> new_hex_table;
 
-  const int chars_per_line = 32; // (16 bytes * 2)
   QVector<QString> next_row;
 
   for (int i = 0; i <= temp_file_content.length(); i++) {
-
     // Parse out 1-byte hex values, and convert to ASCII
     if (i % 2 != 0) {
       QString byte_string = QChar(temp_file_content[i - 1]);
@@ -108,6 +111,7 @@ void HexView::buildHexTable(QString temp_file_content) {
     if (i != 0 && i % chars_per_line == 0) {
       next_row.append(ascii_string_line);
       new_hex_table.append(next_row);
+      next_row.clear();
       ascii_string_line.clear();
     }
   }
