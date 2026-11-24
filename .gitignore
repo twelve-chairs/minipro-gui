@@ -725,3 +725,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Unit test build output
+tests/build/

@@ -1,46 +1,40 @@
 cmake_minimum_required(VERSION 3.16)
 
-set(PROJECT_NAME "minipro-gui")
+project(minipro-gui-tests LANGUAGES C CXX)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-project(${PROJECT_NAME} LANGUAGES C CXX)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Test Widgets)
 
 qt_standard_project_setup()
+enable_testing()
 
-file(GLOB H_FILES "../src/*.h")
-file(GLOB CPP_FILES "../src/*.cpp")
-file(GLOB TEST_FILES "*.cpp")
+set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
-qt_add_executable(${PROJECT_NAME}
-        ${H_FILES}
-        ../src/MainWindow.cpp
-        ../src/HexView.cpp
-        ${TEST_FILES}
+# One executable per QtTest class (each file has its own QTEST_MAIN).
+# Usage: add_qt_test(<name> <test source> [extra sources...])
+function(add_qt_test name test_source)
+  qt_add_executable(${name} ${test_source} ${ARGN})
+  target_include_directories(${name} PRIVATE ${SRC_DIR})
+  target_link_libraries(${name} PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Widgets)
+  add_test(NAME ${name} COMMAND ${name})
+  # Run headless so tests work on CI and don't pop up windows locally.
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endfunction()
+
+add_qt_test(hexview_test
+        HexViewTest.cpp
+        ${SRC_DIR}/HexView.h
+        ${SRC_DIR}/HexView.cpp
 )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES
-        MACOSX_BUNDLE TRUE
+add_qt_test(mainwindow_test
+        MainWindowTest.cpp
+        ${SRC_DIR}/MainWindow.h
+        ${SRC_DIR}/MainWindow.cpp
+        ${SRC_DIR}/HexView.h
+        ${SRC_DIR}/HexView.cpp
 )
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Test
-        Qt6::Widgets
-)
-
-install(TARGETS ${PROJECT_NAME}
-        BUNDLE  DESTINATION .
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
-
-qt_generate_deploy_app_script(
-        TARGET ${PROJECT_NAME}
-        OUTPUT_SCRIPT deploy_script
-        NO_UNSUPPORTED_PLATFORM_ERROR
-)
-install(SCRIPT ${deploy_script})
+target_compile_definitions(mainwindow_test PRIVATE
+        FAKE_MINIPRO_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/fake_minipro.sh")

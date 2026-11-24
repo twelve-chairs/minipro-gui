@@ -1,6 +1,7 @@
 #include "HexView.h"
 
-const int chars_per_line = 32; // (16 bytes * 2)
+const int bytes_per_line = 16;
+const int column_count = bytes_per_line + 1; // 16 byte columns + ASCII column
 
 HexView::HexView(QObject *parent) : QAbstractTableModel(parent) {
   clearHexTable();
@@ -8,12 +9,14 @@ HexView::HexView(QObject *parent) : QAbstractTableModel(parent) {
   monospace_font.setStyleHint(QFont::Monospace);
 }
 
-int HexView::rowCount(const QModelIndex &) const {
-  return static_cast<int>(table.size());
+int HexView::rowCount(const QModelIndex &parent) const {
+  // Flat table: cells have no children.
+  return parent.isValid() ? 0 : static_cast<int>(table.size());
 }
 
-int HexView::columnCount(const QModelIndex &) const {
-  return static_cast<int>(table.at(0).size());
+int HexView::columnCount(const QModelIndex &parent) const {
+  // Fixed column count, so an empty table (fewer than 16 bytes loaded) is still safe.
+  return parent.isValid() ? 0 : column_count;
 }
 
 QVariant HexView::data(const QModelIndex &index, int role) const {
@@ -61,7 +64,7 @@ QVariant HexView::headerData(int section, Qt::Orientation orientation, int role)
   }
 
   if (orientation == Qt::Vertical) {
-    int offset_val = section * chars_per_line;
+    int offset_val = section * bytes_per_line;
     //generate the starting offset for each row of the table in hex
     return QVariant::fromValue(QString("%1").arg(offset_val,6,16,QLatin1Char('0')).toUpper()); 
   }
@@ -84,37 +87,22 @@ void HexView::buildHexTable(QString temp_file_content) {
   beginResetModel();
   table.clear();
 
-  QString ascii_string_line;
-  QVector<QVector<QString>> new_hex_table;
-
-  QVector<QString> next_row;
-
-  for (int i = 0; i <= temp_file_content.length(); i++) {
-    // Parse out 1-byte hex values, and convert to ASCII
-    if (i % 2 != 0) {
-      QString byte_string = QChar(temp_file_content[i - 1]);
-      byte_string += QChar(temp_file_content[i]);
-
-      next_row.append(byte_string.toUpper());
-
-      auto ascii_int = byte_string.toUInt(nullptr, 16);
-      // Non-extended ASCII only
-      if (ascii_int > 126) ascii_int = 46;
-      auto ascii_char = QChar(ascii_int);
-      // Printable characters only
-      if (!ascii_char.isPrint() || ascii_char.isNull()) {
-        ascii_char = '.';
+  const QByteArray bytes = QByteArray::fromHex(temp_file_content.toLatin1());
+  for (qsizetype offset = 0; offset < bytes.size(); offset += bytes_per_line) {
+    QVector<QString> row;
+    QString ascii_string_line;
+    for (int column = 0; column < bytes_per_line; column++) {
+      if (offset + column >= bytes.size()) {
+        row.append("");  // pad a trailing partial row
+        continue;
       }
-      ascii_string_line += ascii_char;
+      const auto byte = static_cast<unsigned char>(bytes.at(offset + column));
+      row.append(QString("%1").arg(byte, 2, 16, QLatin1Char('0')).toUpper());
+      // Printable, non-extended ASCII only
+      ascii_string_line += (byte >= 0x20 && byte <= 0x7E) ? QChar(byte) : QChar('.');
     }
-    // Add ASCII character translation, and move on to next 16-byte line
-    if (i != 0 && i % chars_per_line == 0) {
-      next_row.append(ascii_string_line);
-      new_hex_table.append(next_row);
-      next_row.clear();
-      ascii_string_line.clear();
-    }
+    row.append(ascii_string_line);
+    table.append(row);
   }
-  table = new_hex_table;
   endResetModel();
 }

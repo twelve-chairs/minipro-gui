@@ -24,6 +24,8 @@
 
 class MainWindow : public QMainWindow {
  Q_OBJECT
+  friend class MainWindowTest;
+  friend struct MainWindowDeleter;
 
  public:
   explicit MainWindow(QWidget *parent = nullptr);
