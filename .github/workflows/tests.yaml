@@ -8,12 +8,14 @@ on:
     paths:
       - src/**
       - tests/**
+      - .github/workflows/tests.yaml
   pull_request:
     branches:
       - 'master'
     paths:
       - src/**
       - tests/**
+      - .github/workflows/tests.yaml
   schedule:
     - cron:  '0 0 1 * *'
 
@@ -29,6 +31,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false  # later steps don't use git
       - name: Build Tests
         shell: bash
         run: |
