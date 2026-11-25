@@ -29,8 +29,10 @@ commit.** Fix it; don't note it for later.
 All device access goes through `QProcess`. The rules here prevent command
 injection and stop the app damaging hardware by accident.
 
-- Start `minipro` with a program name and a `QStringList` of arguments
-  (`process->start("minipro", args)`). **Never** go through a shell: no
+- Start `minipro` by the absolute path `minipro_path()` finds on `PATH`, with
+  a `QStringList` of arguments (`process->start(minipro_path(), args)`). Never
+  start it by bare name: Windows would search the current directory first, so
+  a planted `minipro.exe` there would run. **Never** go through a shell: no
   `system()`, `popen()`, `sh -c`, `QProcess::startCommand()`, and no
   single-string command lines. Device names, file paths and options are
   separate list items, never spliced into a string.
