@@ -87,7 +87,7 @@ change for the user to decide, not something to slip into a code review:
 - The runtime dependencies are Qt 6 (Core, Gui, Widgets) and the `minipro` CLI,
   both installed by the user. Adding another one needs a reason in the commit
   message.
-- GitHub Actions run with least-privilege `permissions:`, never use
-  `pull_request_target` to check out PR code, and never echo secrets. New
-  actions are pinned to a commit SHA. The existing `actions/checkout@v4` tags
-  are a known gap for `/security-audit` to report.
+- GitHub Actions run with least-privilege `permissions:` (the workflows set
+  `contents: read`), never use `pull_request_target` to check out PR code, and
+  never echo secrets. Every action is pinned to a commit SHA, with its version
+  in a comment (`actions/checkout@<sha> # v4.4.0`).
