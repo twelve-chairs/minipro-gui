@@ -94,7 +94,11 @@ change for the user to decide, not something to slip into a code review:
   `contents: read`). The one exception is `release.yaml`'s Publish job, which
   runs only for a pushed version tag and may write releases and attestations.
   Release builds don't use caches, and tools they download are pinned to a
-  release and checked against a SHA-256. Workflows never use
-  `pull_request_target` to check out PR code, and
-  never echo secrets. Every action is pinned to a commit SHA, with its version
-  in a comment (`actions/checkout@<sha> # v7.0.1`).
+  release and checked against a SHA-256.
+- The macOS signing and notarization secrets go only to the release
+  workflow's tag and manual runs, never to a pull request run. They are
+  decoded to temporary files that are deleted after use, and the certificate
+  goes into a throwaway keychain.
+- Workflows never use `pull_request_target` to check out PR code and never
+  echo secrets. Every action is pinned to a commit SHA, with its version in a
+  comment (`actions/checkout@<sha> # v7.0.1`).

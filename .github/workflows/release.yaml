@@ -81,8 +81,14 @@ jobs:
   MacOS:
     needs: Version
     runs-on: macos-latest
+    outputs:
+      notarized: ${{ steps.notarize.outputs.notarized }}
     env:
       VERSION: ${{ needs.Version.outputs.version }}
+      # Sign with the Developer ID and notarize only for tag pushes and manual runs, and only once
+      # all four secrets exist. Pull request runs never get the signing secrets; they and any run
+      # without the secrets build an ad hoc signed app, as before.
+      SIGN: ${{ github.event_name != 'pull_request' && secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.NOTARY_KEY_P8 != '' && secrets.NOTARY_KEY_ID != '' && secrets.NOTARY_ISSUER_ID != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,15 +99,48 @@ jobs:
           arch: clang_64  # Qt's macOS build is universal (Apple silicon and Intel)
           aqtversion: '==3.3.0'
           cache: false  # a release is built from a fresh download, never from a cache
+      - name: Import the Developer ID certificate
+        if: env.SIGN == 'true'
+        shell: bash
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain with a random password, deleted at the end of the job.
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application/ {print $2; exit}')"
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERTIFICATE_P12 holds no Developer ID Application certificate with its private key"
+            exit 1
+          fi
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Build and package
         shell: bash
         run: |
           cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -S . -B build
           cmake --build build --target minipro-gui -- -j 3
-          macdeployqt build/minipro-gui.app
-          # Not yet signed with a Developer ID or notarized (step 2). macdeployqt changed the
-          # binaries, so sign ad hoc again: Apple silicon won't run a binary with a broken signature.
-          codesign --force --deep --sign - build/minipro-gui.app
+          if [ -n "${SIGNING_IDENTITY:-}" ]; then
+            # Signs the app, its frameworks and plugins with the hardened runtime and a secure
+            # timestamp, as notarization requires.
+            macdeployqt build/minipro-gui.app -sign-for-notarization="$SIGNING_IDENTITY"
+          else
+            macdeployqt build/minipro-gui.app
+            # macdeployqt changed the binaries, so sign ad hoc again: Apple silicon won't run a
+            # binary with a broken signature.
+            codesign --force --deep --sign - build/minipro-gui.app
+          fi
+          codesign --verify --deep --strict --verbose=2 build/minipro-gui.app
           lipo -archs build/minipro-gui.app/Contents/MacOS/minipro-gui
           mkdir -p dmg out
           cp -R build/minipro-gui.app dmg/
@@ -109,6 +148,44 @@ jobs:
           cp packaging/THIRD-PARTY-NOTICES.txt LICENSE dmg/
           cp -R packaging/licenses dmg/
           hdiutil create -volname "Minipro GUI" -srcfolder dmg -ov -format UDZO "out/minipro-gui-$VERSION-macos.dmg"
+          if [ -n "${SIGNING_IDENTITY:-}" ]; then
+            codesign --force --timestamp --sign "$SIGNING_IDENTITY" "out/minipro-gui-$VERSION-macos.dmg"
+          fi
+      - name: Notarize
+        id: notarize
+        if: env.SIGN == 'true'
+        shell: bash
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          dmg="out/minipro-gui-$VERSION-macos.dmg"
+          key="$RUNNER_TEMP/notary-key.p8"
+          printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$key"
+          result="$(xcrun notarytool submit "$dmg" --key "$key" --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" --wait --timeout 30m --output-format json)" || true
+          echo "$result"
+          status="$(printf '%s' "$result" | plutil -extract status raw -o - - 2>/dev/null || true)"
+          if [ "$status" != "Accepted" ]; then
+            id="$(printf '%s' "$result" | plutil -extract id raw -o - - 2>/dev/null || true)"
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
+            fi
+            rm -f "$key"
+            echo "::error::Notarization wasn't accepted (status: ${status:-none})"
+            exit 1
+          fi
+          rm -f "$key"
+          # Attach the ticket, so Gatekeeper accepts the app offline too.
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+      - name: Remove the signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        shell: bash
+        run: security delete-keychain "$SIGNING_KEYCHAIN"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-macos
@@ -198,12 +275,21 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          NOTARIZED: ${{ needs.MacOS.outputs.notarized }}
         run: |
-          cat > notes.md <<'EOF'
+          if [ "$NOTARIZED" = true ]; then
+            macos='- **macOS** (Apple silicon and Intel): `minipro-gui-…-macos.dmg`. Drag the app to Applications. It is signed with a Developer ID and notarized by Apple.'
+          else
+            macos='- **macOS** (Apple silicon and Intel): `minipro-gui-…-macos.dmg`. Drag the app to Applications. It isn'"'"'t signed with a Developer ID or notarized, so the first time macOS blocks it: open **System Settings → Privacy & Security** and choose **Open Anyway**.'
+          fi
+          {
+          cat <<'EOF'
           ## Downloads
 
           - **Windows:** `minipro-gui-…-windows-x64.zip`. Unzip it and run `minipro-gui.exe`. It needs the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist). The app isn't code-signed yet, so SmartScreen may warn about an unknown publisher: choose **More info → Run anyway**.
-          - **macOS** (Apple silicon and Intel): `minipro-gui-…-macos.dmg`. Drag the app to Applications. It isn't signed with a Developer ID or notarized yet, so the first time macOS blocks it: open **System Settings → Privacy & Security** and choose **Open Anyway**.
+          EOF
+          echo "$macos"
+          cat <<'EOF'
           - **Linux** (x86-64): `minipro-gui-…-linux-x86_64.AppImage`. Make it executable (`chmod +x`) and run it.
 
           minipro-gui runs the [minipro](https://gitlab.com/DavidGriffith/minipro) CLI, which isn't included: install it first and make sure it's on your `PATH` (on macOS, Homebrew's folder is found too). On Windows the programmer also needs the WinUSB driver; see the README.
@@ -212,5 +298,6 @@ jobs:
 
           `SHA256SUMS.txt` lists each file's SHA-256. Each file also has a build provenance attestation; check it with `gh attestation verify <file> --repo twelve-chairs/minipro-gui`.
           EOF
+          } > notes.md
           gh release create "$VERSION" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
             --title "minipro-gui $VERSION" --notes-file notes.md
