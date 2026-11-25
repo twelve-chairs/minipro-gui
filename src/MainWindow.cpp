@@ -245,36 +245,49 @@ QStringList MainWindow::parse_action_checkboxes() const {
   return arguments;
 }
 
+int MainWindow::sync_timeout_ms = 10000;
+
+// Runs a quick query and returns its stdout or stderr. Blocks the UI, so only for commands that
+// finish in well under a second; device operations go through run_async_process().
 QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
                                 const QStringList &process_arguments,
                                 const QString &type = "stderr") {
-  QString output = "";
-
   QString process_arguments_string = "";
-  auto *process = new QProcess();
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
   }
   target_plain_text_edit.appendPlainText("[Input]: minipro " + process_arguments_string);
-  process->start("minipro", process_arguments);
 
-  if (!process->waitForStarted()) {
-    output += "Start Error";
+  QProcess process;
+  process.start("minipro", process_arguments);
+  // Without a programmer, minipro asks "Which database do you want to display?" on stdin.
+  // End-of-input makes it abort instead of blocking until the timeout.
+  process.closeWriteChannel();
+  if (!process.waitForStarted(sync_timeout_ms)) {
+    target_plain_text_edit.appendPlainText("[Error]: could not start minipro: " + process.errorString());
+    target_plain_text_edit.ensureCursorVisible();
+    return {};
   }
-  if (!process->waitForFinished()) {
-    output += "Finished Error";
+  if (!process.waitForFinished(sync_timeout_ms)) {
+    process.kill();
+    process.waitForFinished(1000);
+    target_plain_text_edit.appendPlainText(
+        QString("[Error]: minipro didn't finish within %1 ms and was stopped").arg(sync_timeout_ms));
+    target_plain_text_edit.ensureCursorVisible();
+    return {};
   }
+
+  static const QRegularExpression serial_code(R"(Serial code:.*\n([\s\S]*))");
+  QString output;
   if (type == "stderr") {
-    output += process->readAllStandardError();
-    static QRegularExpression re(R"(Serial code:.*\n([\s\S]*))");
-    if (QRegularExpressionMatch match = re.match(output); match.hasMatch()) {
+    output = process.readAllStandardError();
+    if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
       output = match.captured(1).trimmed();
     }
     target_plain_text_edit.appendPlainText("[Output]: " + output.replace("\u001B[K", ""));
   } else if (type == "stdout") {
-    output += process->readAllStandardOutput();
-    static QRegularExpression re(R"(Serial code:.*\n([\s\S]*))");
-    if (QRegularExpressionMatch match = re.match(output); match.hasMatch()) {
+    output = process.readAllStandardOutput();
+    if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
       output = match.captured(1).trimmed().replace("\u001B[K", "");
     }
   }
@@ -407,7 +420,9 @@ void MainWindow::run_command() {
     }
     QStringList arguments;
     arguments << "-p" << device << actions << parse_option_checkboxes();
-    run_process(*status_view, arguments);
+    // Asynchronous: an erase or blank check can take minutes on a large chip.
+    run_async_process(arguments, actions.first() == "--erase" ? AsyncOperation::Erase
+                                                              : AsyncOperation::Check);
   }
 }
 
@@ -432,9 +447,11 @@ void MainWindow::async_process_finished(int code, QProcess::ExitStatus status) {
   if (async_operation == AsyncOperation::Read && succeeded) {
     hexViewModel.clearHexTable();
     build_formatted_hex_output();
+  } else if (async_operation == AsyncOperation::Check) {
+    // Blank, pin and hardware checks don't change the chip; keep showing the last read.
   } else {
-    // A failed read has no data to show, and after a write or firmware update the last read
-    // no longer matches the chip.
+    // A failed read has no data to show, and after a write, erase or firmware update the last
+    // read no longer matches the chip.
     build_default_hex_output();
   }
   end_async_process();

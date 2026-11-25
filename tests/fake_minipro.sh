@@ -12,6 +12,9 @@
 #   FAKE_MINIPRO_CRASH        if set, device operations kill themselves with SIGKILL (a crash)
 #   FAKE_MINIPRO_DELAY        seconds a device operation takes (default 0)
 #   FAKE_MINIPRO_DONE_LOG     file each device operation appends its arguments to when it ends
+#   FAKE_MINIPRO_INFO_PROMPT  if set, -l and -d ask "Which database...?" on stdin like minipro
+#                             does without a programmer, and abort unless answered
+#   FAKE_MINIPRO_INFO_SLEEP   seconds -l and -d take (default 0)
 
 ARGS="$*"
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
@@ -35,6 +38,22 @@ case "$1" in
     fi
     exit 0
     ;;
+  -l|-d)
+    if [ -n "$FAKE_MINIPRO_INFO_SLEEP" ]; then
+      sleep "$FAKE_MINIPRO_INFO_SLEEP"
+    fi
+    if [ -n "$FAKE_MINIPRO_INFO_PROMPT" ]; then
+      printf 'No device found. Which database do you want to display?\n1) TL866A/CS\n2) TL866II+/T48/T56\n3) T76\n4) Abort\n' >&2
+      read -r choice || choice=""
+      if [ "$choice" != "2" ]; then
+        echo "Aborted." >&2
+        exit 1
+      fi
+    fi
+    ;;
+esac
+
+case "$1" in
   -l)
     printf 'W27C512\nAT28C256\n27C256\nAT28C256\n'
     exit 0

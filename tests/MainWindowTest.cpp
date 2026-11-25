@@ -32,6 +32,10 @@ class MainWindowTest : public QObject {
   void presenceCheckParsing_data();
   void presenceCheckParsing();
   void presenceCheckDoesNotDuplicateProgrammer();
+  void queryPromptDoesNotHang();
+  void slowQueryIsStopped();
+  void startFailureIsReportedNotParsed();
+  void runCommandDoesNotBlockAndKeepsOrResetsView();
   void deviceListIsSortedAndDeduplicated();
   void selectDeviceFillsDeviceInfo();
   void selectDeviceIgnoresEmptyName();
@@ -106,6 +110,9 @@ void MainWindowTest::init() {
   qputenv("FAKE_MINIPRO_LOG", logPath.toLocal8Bit());
   qunsetenv("FAKE_MINIPRO_NO_PROGRAMMER");
   qunsetenv("FAKE_MINIPRO_PRESENCE");
+  qunsetenv("FAKE_MINIPRO_INFO_PROMPT");
+  qunsetenv("FAKE_MINIPRO_INFO_SLEEP");
+  MainWindow::sync_timeout_ms = 10000;
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
   qunsetenv("FAKE_MINIPRO_READ_EMPTY");
@@ -271,6 +278,7 @@ void MainWindowTest::runCommandRunsOneActionWithOptions() {
   mw->combobox_device->setCurrentText("AT28C256");
   checkAll({mw->erase_device, mw->pin_check});
   mw->run_command();
+  QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(loggedCalls().last(), QString("-p AT28C256 --erase --pin_check"));
 }
 
@@ -587,6 +595,68 @@ void MainWindowTest::presenceCheckDoesNotDuplicateProgrammer() {
   mw->check_for_programmer();
   mw->check_for_programmer();
   QCOMPARE(mw->combobox_programmer->count(), 1);
+}
+
+void MainWindowTest::queryPromptDoesNotHang() {
+  // Regression: without a programmer, -d asks "Which database...?" on stdin, which was left
+  // open, so selecting a device froze the UI for 30 s and left minipro running.
+  auto mw = makeWindow();
+  qputenv("FAKE_MINIPRO_INFO_PROMPT", "1");
+  QElapsedTimer timer;
+  timer.start();
+  mw->combobox_device->setCurrentText("AT28C256");
+  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(mw->status_view->toPlainText().contains("Aborted."));
+}
+
+void MainWindowTest::slowQueryIsStopped() {
+  MainWindow::sync_timeout_ms = 500;
+  auto mw = makeWindow();
+  qputenv("FAKE_MINIPRO_INFO_SLEEP", "5");
+  QElapsedTimer timer;
+  timer.start();
+  mw->combobox_device->setCurrentText("AT28C256");
+  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(mw->status_view->toPlainText().contains(
+      "[Error]: minipro didn't finish within 500 ms and was stopped"));
+}
+
+void MainWindowTest::startFailureIsReportedNotParsed() {
+  // Regression: "Start Error" and "Finished Error" were glued onto minipro's output and parsed
+  // with it (e.g. into the device list).
+  auto mw = makeWindow();
+  qputenv("PATH", emptyBinDir.toLocal8Bit());
+  QPlainTextEdit pane;
+  QCOMPARE(MainWindow::run_process(pane, {"-l"}, "stdout"), QString());
+  QVERIFY(pane.toPlainText().contains("[Error]: could not start minipro"));
+  QVERIFY(!pane.toPlainText().contains("Start Error"));
+  QVERIFY(!pane.toPlainText().contains("Finished Error"));
+}
+
+void MainWindowTest::runCommandDoesNotBlockAndKeepsOrResetsView() {
+  // Regression: Run Command used the synchronous path, so a long erase froze the UI and was
+  // cut off after 30 s.
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ff").repeated(16));
+  auto mw = makeWindow();
+  readFfRow(*mw);
+
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  mw->blank_check->setChecked(true);
+  QElapsedTimer timer;
+  timer.start();
+  mw->run_command();
+  QVERIFY2(timer.elapsed() < 500, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(mw->async_process != nullptr);
+  QTRY_VERIFY(mw->async_process == nullptr);
+  // A blank check doesn't change the chip, so the last read stays.
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("FF"));
+
+  mw->blank_check->setChecked(false);
+  mw->erase_device->setChecked(true);
+  mw->run_command();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  // An erase does, so the view goes back to the placeholder.
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
 
 QTEST_MAIN(MainWindowTest)
