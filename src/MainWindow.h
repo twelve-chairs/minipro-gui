@@ -141,6 +141,8 @@ class MainWindow : public QMainWindow {
   } firmware_prompt;
   void answer_firmware_prompt_if_asked(const QString &new_output);
   [[nodiscard]] bool refuse_if_operation_running() const;
+  [[nodiscard]] bool device_selected() const;
+  [[nodiscard]] bool refuse_if_no_device() const;
   void set_device_operation_running(bool);
   void end_async_process();
   void build_default_hex_output();

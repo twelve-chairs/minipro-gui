@@ -387,11 +387,25 @@ void MainWindow::disable_buttons() {
 }
 
 void MainWindow::enable_buttons() {
-  targets.device->setDisabled(false);
-  buttons.run_command->setDisabled(false);
-  buttons.read->setDisabled(false);
-  buttons.write->setDisabled(false);
+  // Device operations need a device from minipro's list. If -l returned nothing, `device` is
+  // empty and they would send "-p ''". Updating the programmer's firmware needs no device.
+  targets.device->setDisabled(devices_list.isEmpty());
+  buttons.run_command->setDisabled(!device_selected());
+  buttons.read->setDisabled(!device_selected());
+  buttons.write->setDisabled(!device_selected());
   buttons.update->setDisabled(false);
+}
+
+bool MainWindow::device_selected() const {
+  return !device.isEmpty() && devices_list.contains(device);
+}
+
+// Backstop for the device operations, which the UI disables while no device is selected.
+bool MainWindow::refuse_if_no_device() const {
+  if (device_selected()) return false;
+  status_view->appendPlainText("[Error]: no device selected");
+  status_view->ensureCursorVisible();
+  return true;
 }
 
 void MainWindow::get_devices() {
@@ -408,7 +422,8 @@ void MainWindow::get_devices() {
     devices_list.sort();
     devices_list.removeDuplicates();
 
-    targets.device->addItems(devices_list);
+    targets.device->addItems(devices_list);  // selects the first device, if any
+    if (async_process == nullptr) enable_buttons();
   }
 }
 
@@ -449,7 +464,7 @@ void MainWindow::select_device(const QString &selected_device) {
 }
 
 void MainWindow::run_command() {
-  if (minipro_found && !refuse_if_operation_running()) {
+  if (minipro_found && !refuse_if_operation_running() && !refuse_if_no_device()) {
     const QStringList actions = parse_action_checkboxes();
     if (actions.size() != 1) {
       // minipro runs only one action; with several it would silently pick one.
@@ -474,7 +489,7 @@ void MainWindow::run_command() {
 }
 
 void MainWindow::read_device() {
-  if (refuse_if_operation_running()) return;
+  if (refuse_if_operation_running() || refuse_if_no_device()) return;
   QStringList arguments;
   if (!read_dir.isValid()) {
     status_view->appendPlainText("[Error]: no temporary folder for the read: " + read_dir.errorString());
@@ -527,7 +542,7 @@ void MainWindow::write_device() {
 }
 
 void MainWindow::write_file_to_device(const QString &file_name) {
-  if (refuse_if_operation_running()) return;
+  if (refuse_if_operation_running() || refuse_if_no_device()) return;
   if (!confirmations.device_change(tr("Write to %1?").arg(device),
                              tr("This overwrites the contents of the %1 in the programmer with\n\n%2")
                                  .arg(device, QDir::toNativeSeparators(file_name)))) {

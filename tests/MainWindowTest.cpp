@@ -33,6 +33,8 @@ class MainWindowTest : public QObject {
   void startFailureIsReportedNotParsed();
   void runCommandDoesNotBlockAndKeepsOrResetsView();
   void deviceListIsSortedAndDeduplicated();
+  void emptyDeviceListDisablesDeviceOperations();
+  void operationsRefuseEmptyDevice();
   void selectDeviceFillsDeviceInfo();
   void selectDeviceIgnoresEmptyName();
   void failedDeviceInfoClearsPreviousDevice();
@@ -121,6 +123,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_INFO_SLEEP");
   qunsetenv("FAKE_MINIPRO_INFO_FAIL");
   qunsetenv("FAKE_MINIPRO_CRLF");
+  qunsetenv("FAKE_MINIPRO_LIST_EMPTY");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
   qunsetenv("FAKE_MINIPRO_INFO_TEXT");
   MainWindow::sync_timeout_ms = 10000;
@@ -882,6 +885,44 @@ void MainWindowTest::checksDoNotAsk() {
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(asked, 0);
   QVERIFY(loggedCalls().last().contains("--blank_check"));
+}
+
+void MainWindowTest::emptyDeviceListDisablesDeviceOperations() {
+  // Regression: the buttons were enabled as soon as a programmer was found, before -l was parsed,
+  // so an empty device list left Read, Write and Run Command enabled with no device.
+  qputenv("FAKE_MINIPRO_LIST_EMPTY", "1");
+  auto mw = makeWindow();
+  QVERIFY(mw->programmer_found);
+  QCOMPARE(mw->device, QString());
+  QVERIFY(!mw->targets.device->isEnabled());
+  QVERIFY(!mw->buttons.read->isEnabled());
+  QVERIFY(!mw->buttons.write->isEnabled());
+  QVERIFY(!mw->buttons.run_command->isEnabled());
+  QVERIFY(mw->buttons.update->isEnabled());  // firmware updates need no device
+
+  // The same holds after an operation finishes and the controls are restored.
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(!mw->buttons.read->isEnabled());
+  QVERIFY(mw->buttons.update->isEnabled());
+}
+
+void MainWindowTest::operationsRefuseEmptyDevice() {
+  qputenv("FAKE_MINIPRO_LIST_EMPTY", "1");
+  auto mw = makeWindow();
+  int asked = 0;
+  mw->confirmations.device_change = [&asked](const QString &, const QString &) {
+    asked++;
+    return true;
+  };
+  mw->read_device();
+  mw->write_file_to_device("/images/fw.bin");
+  mw->actions.erase->setChecked(true);
+  mw->run_command();
+  QCOMPARE(mw->status_view->toPlainText().count("[Error]: no device selected"), 3);
+  QCOMPARE(asked, 0);  // refused before asking
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter(QRegularExpression("^-p ")).isEmpty());
 }
 
 QTEST_MAIN(MainWindowTest)

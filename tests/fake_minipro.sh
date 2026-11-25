@@ -17,6 +17,7 @@
 #   FAKE_MINIPRO_INFO_SLEEP   seconds -l and -d take (default 0)
 #   FAKE_MINIPRO_INFO_FAIL    if set, -d reports an unknown device and exits 1
 #   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
+#   FAKE_MINIPRO_LIST_EMPTY   if set, -l prints no devices
 #   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (printf %b escapes)
 #   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (printf %b escapes)
 
@@ -65,6 +66,9 @@ esac
 
 case "$1" in
   -l)
+    if [ -n "$FAKE_MINIPRO_LIST_EMPTY" ]; then
+      exit 0
+    fi
     if [ -n "$FAKE_MINIPRO_CRLF" ]; then
       printf 'W27C512\r\nAT28C256\r\n27C256\r\nAT28C256\r\n'
     else
