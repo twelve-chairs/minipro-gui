@@ -76,6 +76,8 @@ class MainWindowTest : public QObject {
   void firmwareUpdateWhenConfirmed();
   void firmwareUpdateWhenDeclined();
   void closingWindowAtFirmwarePromptAborts();
+  void tl866aFirmwareUpdateWhenConfirmed();
+  void tl866aFirmwareUpdateWhenDeclined();
 
   // Confirmations before changing the chip
   void writeAsksAndCanBeCancelled();
@@ -124,6 +126,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_INFO_FAIL");
   qunsetenv("FAKE_MINIPRO_CRLF");
   qunsetenv("FAKE_MINIPRO_LIST_EMPTY");
+  qunsetenv("FAKE_MINIPRO_TL866A");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
   qunsetenv("FAKE_MINIPRO_INFO_TEXT");
   MainWindow::sync_timeout_ms = 10000;
@@ -689,8 +692,9 @@ void MainWindowTest::firmwareUpdateWhenConfirmed() {
   mw->update_firmware_from_file("/images/update.dat");
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(asked.size(), 1);
-  // The dialog shows the versions minipro printed before its prompt.
+  // The dialog shows the versions minipro printed before its prompt, not the prompt itself.
   QVERIFY(asked.first().contains("/images/update.dat contains firmware version 04.2.132 (newer)"));
+  QVERIFY(!asked.first().contains("Do you want to continue"));
   QVERIFY(mw->status_view->toPlainText().contains("[Input]: y"));
   QVERIFY(mw->status_view->toPlainText().contains("Firmware update completed."));
   QVERIFY(!mw->status_view->toPlainText().contains("[Error]"));
@@ -923,6 +927,39 @@ void MainWindowTest::operationsRefuseEmptyDevice() {
   QCOMPARE(asked, 0);  // refused before asking
   QVERIFY(mw->async_process == nullptr);
   QVERIFY(loggedCalls().filter(QRegularExpression("^-p ")).isEmpty());
+}
+
+void MainWindowTest::tl866aFirmwareUpdateWhenConfirmed() {
+  // Regression: a TL866A/CS asks "Which firmware version do you want to reflash?" with a
+  // numbered menu; only the y/n prompt was recognised, so Update Firmware hung.
+  qputenv("FAKE_MINIPRO_TL866A", "1");
+  auto mw = makeWindow();
+  QStringList asked;
+  mw->confirmations.firmware_update = [&asked](const QString &text) {
+    asked << text;
+    return true;
+  };
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(asked.size(), 1);
+  QVERIFY(asked.first().contains("/images/update.dat contains firmware version 03.2.86 (newer)"));
+  QVERIFY(!asked.first().contains("Which firmware version"));
+  QVERIFY(!asked.first().contains("2) A"));
+  // "1" reflashes the programmer's own variant; switching A <-> CS ("2") is never sent.
+  QVERIFY(mw->status_view->toPlainText().contains("[Input]: 1"));
+  QVERIFY(mw->status_view->toPlainText().contains("Reflashing TL866CS firmware... OK"));
+  QVERIFY(!mw->status_view->toPlainText().contains("[Error]"));
+}
+
+void MainWindowTest::tl866aFirmwareUpdateWhenDeclined() {
+  qputenv("FAKE_MINIPRO_TL866A", "1");
+  auto mw = makeWindow();
+  mw->update_firmware_from_file("/images/update.dat");  // makeWindow() declines by default
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->status_view->toPlainText().contains("[Input]: 3"));
+  QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
+  QVERIFY(!mw->status_view->toPlainText().contains("Reflashing"));
+  QVERIFY(mw->buttons.update->isEnabled());
 }
 
 QTEST_MAIN(MainWindowTest)

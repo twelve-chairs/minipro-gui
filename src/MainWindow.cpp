@@ -2,8 +2,19 @@
 #include <QMessageBox>
 
 namespace {
-// minipro's confirmation prompt for -F (tl866iiplus.c, t48.c, t56.c).
-const QString firmware_prompt_text = "Do you want to continue with firmware update?";
+// minipro's stdin prompts for -F, and the answers for "go ahead" and "cancel".
+struct FirmwarePromptKind {
+  const char *text;
+  const char *go_ahead;
+  const char *cancel;
+};
+const std::array<FirmwarePromptKind, 2> firmware_prompts{{
+    // TL866II+, T48, T56, T76 (tl866iiplus.c, t48.c, t56.c, t76.c): y/n.
+    {"Do you want to continue with firmware update?", "y", "n"},
+    // TL866A/CS (tl866a.c): "1) Device default 2) <the other variant> 3) Exit". Going ahead
+    // reflashes the programmer's own variant; switching between A and CS is never offered.
+    {"Which firmware version do you want to reflash?", "1", "3"},
+}};
 // The "erase to end of line" terminal code minipro prints with its progress output.
 const QString erase_to_end_of_line = QString(QChar(0x1B)) + "[K";
 }  // namespace
@@ -204,14 +215,26 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
 void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
   if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt.answered) return;
   firmware_prompt.output += new_output;
-  if (!firmware_prompt.output.contains(firmware_prompt_text)) return;
+  const FirmwarePromptKind *prompt = nullptr;
+  qsizetype prompt_start = -1;
+  for (const FirmwarePromptKind &kind : firmware_prompts) {
+    if (const qsizetype at = firmware_prompt.output.indexOf(kind.text); at >= 0) {
+      prompt = &kind;
+      prompt_start = at;
+      break;
+    }
+  }
+  if (prompt == nullptr) return;
   // Set before asking: the dialog runs an event loop, and more output may arrive meanwhile.
   firmware_prompt.answered = true;
   QProcess *process = async_process;
-  const bool go_ahead = confirmations.firmware_update(firmware_prompt.output);
+  // Show what minipro printed before its question (the installed and new versions), not the
+  // question or its numbered menu, which don't fit a Yes/No dialog.
+  const bool go_ahead = confirmations.firmware_update(firmware_prompt.output.left(prompt_start).trimmed());
   if (process != async_process) return;  // the operation ended while the dialog was open
-  status_view->appendPlainText(go_ahead ? "[Input]: y" : "[Input]: n");
-  process->write(go_ahead ? "y\n" : "n\n");
+  const QString answer = go_ahead ? prompt->go_ahead : prompt->cancel;
+  status_view->appendPlainText("[Input]: " + answer);
+  process->write((answer + "\n").toLatin1());
   process->closeWriteChannel();
 }
 
