@@ -11,6 +11,7 @@
 #include <QRegularExpression>
 #include <QFileDialog>
 #include <QFile>
+#include <QTemporaryDir>
 #include <QTableView>
 #include <QListWidget>
 #include <QLineEdit>
@@ -56,7 +57,11 @@ class MainWindow : public QMainWindow {
 
   QFont monospace_font;
 
-  const QString temp_file_name = "temp.bin";
+  // Device reads go to read.bin in a private (0700) temporary folder, created at startup and
+  // removed on exit. Never the working directory: a user's own file there could be overwritten,
+  // a planted symlink could redirect the write, and apps started from the Finder run in "/".
+  QTemporaryDir read_dir;
+  [[nodiscard]] QString read_file_path() const;
 
   // The one running device operation, or nullptr. Owned by this window; deleted when it ends.
   QProcess *async_process = nullptr;

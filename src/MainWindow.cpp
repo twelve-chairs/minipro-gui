@@ -468,9 +468,14 @@ void MainWindow::run_command() {
 void MainWindow::read_device() {
   if (refuse_if_operation_running()) return;
   QStringList arguments;
-  arguments << "-p" << device << "-r" << temp_file_name << parse_option_checkboxes();
+  if (!read_dir.isValid()) {
+    status_view->appendPlainText("[Error]: no temporary folder for the read: " + read_dir.errorString());
+    status_view->ensureCursorVisible();
+    return;
+  }
+  arguments << "-p" << device << "-r" << read_file_path() << parse_option_checkboxes();
   // Remove the previous read first, so a read that writes nothing can't show old data.
-  QFile::remove(temp_file_name);
+  QFile::remove(read_file_path());
   build_default_hex_output();
   run_async_process(arguments, AsyncOperation::Read);
 }
@@ -537,11 +542,15 @@ void MainWindow::build_default_hex_output() {
   format_hex_table_columns();
 }
 
+QString MainWindow::read_file_path() const {
+  return read_dir.filePath("read.bin");
+}
+
 void MainWindow::build_formatted_hex_output() {
-  QFile temp_file(temp_file_name);
+  QFile temp_file(read_file_path());
   if (!temp_file.open(QFile::ReadOnly)) {
     // minipro reported success but left no readable file.
-    status_view->appendPlainText("[Error]: could not open " + temp_file_name + ": " + temp_file.errorString());
+    status_view->appendPlainText("[Error]: could not open the read result: " + temp_file.errorString());
     status_view->ensureCursorVisible();
     build_default_hex_output();
     return;

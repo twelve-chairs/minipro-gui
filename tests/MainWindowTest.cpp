@@ -64,6 +64,7 @@ class MainWindowTest : public QObject {
   void readThatWritesNoFileDoesNotShowPreviousRead();
   void readWithNoFileReportsError();
   void largeImageLoadsQuickly();
+  void readsGoToPrivateFolderNotWorkingDirectory();
   void writeDoesNotLoadPreviousRead();
   void readReportsMiniproFailingToStart();
 
@@ -106,7 +107,7 @@ void MainWindowTest::initTestCase() {
   QVERIFY(QFile::setPermissions(fake, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
 
   originalPath = qgetenv("PATH");
-  // MainWindow reads/writes temp.bin relative to the working directory.
+  // Keep anything written to the working directory out of the source tree.
   QVERIFY(QDir::setCurrent(root.filePath("work")));
 }
 
@@ -127,7 +128,6 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_DELAY");
   qunsetenv("FAKE_MINIPRO_DONE_LOG");
   QFile::remove(logPath);
-  QFile::remove("temp.bin");
 }
 
 void MainWindowTest::cleanup() {
@@ -361,19 +361,20 @@ void MainWindowTest::readDeviceFillsHexView() {
   QCOMPARE(model.index(1, 15).data().toString(), QString("0F"));
   QCOMPARE(model.index(1, 16).data().toString(), QString("................"));
   QCOMPARE(model.headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("000010"));
-  QVERIFY(loggedCalls().contains("-p AT28C256 -r temp.bin"));
-  QVERIFY(mw->status_view->toPlainText().contains("[Input]: minipro -p AT28C256 -r temp.bin"));
+  const QString read = mw->read_file_path();
+  QVERIFY(loggedCalls().contains("-p AT28C256 -r " + read));
+  QVERIFY(mw->status_view->toPlainText().contains("[Input]: minipro -p AT28C256 -r " + read));
 }
 
 void MainWindowTest::readDevicePassesOnlyOptionFlags() {
-  // Regression: --blank_check replaced -r, so the "read" showed the previous temp.bin.
+  // Regression: --blank_check replaced -r, so the "read" showed the previous read.
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("00").repeated(16));
   auto mw = makeWindow();
   mw->combobox_device->setCurrentText("W27C512");
   checkAll({mw->skip_verify, mw->blank_check, mw->erase_device, mw->hardware_check});
   mw->read_device();
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("00"));
-  QVERIFY(loggedCalls().contains("-p W27C512 -r temp.bin --skip_verify"));
+  QVERIFY(loggedCalls().contains("-p W27C512 -r " + mw->read_file_path() + " --skip_verify"));
 }
 
 void MainWindowTest::failedReadRestoresPlaceholder() {
@@ -391,7 +392,7 @@ void MainWindowTest::failedReadRestoresPlaceholder() {
 }
 
 void MainWindowTest::readWithNoDataShowsEmptyTable() {
-  // Fake read succeeds and writes an empty temp.bin, so the hex view receives no bytes.
+  // Fake read succeeds and writes an empty file, so the hex view receives no bytes.
   // Regression: this used to crash in HexView::columnCount().
   qputenv("FAKE_MINIPRO_READ_EMPTY", "1");
   auto mw = makeWindow();
@@ -419,7 +420,7 @@ void MainWindowTest::failedReadNeverShowsPreviousData_data() {
 }
 
 void MainWindowTest::failedReadNeverShowsPreviousData() {
-  // Regression: any exit code other than 1, or a crash, loaded temp.bin from the previous read.
+  // Regression: any exit code other than 1, or a crash, loaded the file from the previous read.
   QFETCH(QByteArray, exitCode);
   QFETCH(bool, crash);
   QFETCH(QString, message);
@@ -435,12 +436,12 @@ void MainWindowTest::failedReadNeverShowsPreviousData() {
 }
 
 void MainWindowTest::readThatWritesNoFileDoesNotShowPreviousRead() {
-  // Regression: temp.bin was never removed, so a read that wrote nothing showed the last chip.
+  // Regression: the read file was never removed, so a read that wrote nothing showed the last chip.
   auto mw = makeWindow();
   readFfRow(*mw);
   qunsetenv("FAKE_MINIPRO_READ_HEX");  // the next read succeeds but writes no file
   mw->read_device();
-  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open temp.bin"));
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open the read result"));
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
 
@@ -448,7 +449,7 @@ void MainWindowTest::readWithNoFileReportsError() {
   // Regression: QFile::open wasn't checked, so a missing file was shown as an empty chip.
   auto mw = makeWindow();
   mw->read_device();
-  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open temp.bin"));
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open the read result"));
   QCOMPARE(mw->hexViewModel.rowCount(), 8);
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
@@ -456,7 +457,7 @@ void MainWindowTest::readWithNoFileReportsError() {
 void MainWindowTest::largeImageLoadsQuickly() {
   // Regression: loading a 16 MiB image (a million rows) took over 10 s and more than 1 GB.
   auto mw = makeWindow();
-  QFile image("temp.bin");
+  QFile image(mw->read_file_path());
   QVERIFY(image.open(QFile::WriteOnly));
   image.write(QByteArray(16 * 1024 * 1024, '\x5A'));
   image.close();
@@ -472,12 +473,12 @@ void MainWindowTest::largeImageLoadsQuickly() {
 }
 
 void MainWindowTest::writeDoesNotLoadPreviousRead() {
-  // Regression: finishing a write loaded temp.bin, showing the last read as the chip contents.
+  // Regression: finishing a write loaded the read file, showing the last read as the chip contents.
   auto mw = makeWindow();
   readFfRow(*mw);
   mw->write_file_to_device("/images/fw.bin");
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
-  QVERIFY(QFile::exists("temp.bin"));  // the file was there to (wrongly) load
+  QVERIFY(QFile::exists(mw->read_file_path()));  // the file was there to (wrongly) load
 }
 
 void MainWindowTest::readReportsMiniproFailingToStart() {
@@ -521,7 +522,7 @@ void MainWindowTest::secondOperationIsRefused() {
 
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("AB"));
   const QStringList deviceOps = loggedCalls().filter(QRegularExpression("^-(p|F) "));
-  QCOMPARE(deviceOps, QStringList{"-p AT28C256 -r temp.bin"});
+  QCOMPARE(deviceOps, QStringList{"-p AT28C256 -r " + mw->read_file_path()});
 }
 
 void MainWindowTest::controlsReenabledAfterFailedStart() {
@@ -744,6 +745,36 @@ void MainWindowTest::windowsLineEndingsAreStripped() {
   QVERIFY(loggedCalls().contains("-d AT28C256"));
   QCOMPARE(mw->device_name->text(), QString("AT28C256"));
   QCOMPARE(mw->device_writebuffer->text(), QString("128 Bytes"));
+}
+
+void MainWindowTest::readsGoToPrivateFolderNotWorkingDirectory() {
+  // Regression: reads went to ./temp.bin, overwriting (and before each read, deleting) a user's
+  // own file of that name, and failing when the working directory isn't writable.
+  QFile own("temp.bin");
+  QVERIFY(own.open(QFile::WriteOnly));
+  own.write("my own file");
+  own.close();
+
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ab").repeated(16));
+  auto mw = makeWindow();
+  mw->read_device();
+  QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("AB"));
+
+  QVERIFY(own.open(QFile::ReadOnly));
+  QCOMPARE(own.readAll(), QByteArray("my own file"));
+  own.close();
+  QVERIFY(QFile::remove("temp.bin"));
+
+  const QFileInfo read(mw->read_file_path());
+  QVERIFY(read.absolutePath() != QDir::currentPath());
+  QCOMPARE(QFileInfo(read.absolutePath()).permissions() & (QFile::ReadGroup | QFile::ReadOther |
+                                                           QFile::WriteGroup | QFile::WriteOther),
+           QFile::Permissions());
+
+  // The folder goes away with the window.
+  const QString folder = read.absolutePath();
+  mw.reset();
+  QVERIFY(!QFileInfo::exists(folder));
 }
 
 QTEST_MAIN(MainWindowTest)
