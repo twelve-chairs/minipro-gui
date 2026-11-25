@@ -49,6 +49,10 @@ jobs:
   Tests-Windows:
     name: Tests (Windows)
     runs-on: windows-latest
+    env:
+      # MSVC Debug links Qt's debug DLLs, too slow for the timing checks. This links the release
+      # Qt the app ships with and keeps asserts' line info.
+      BUILD_TYPE: RelWithDebInfo
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -71,6 +75,7 @@ jobs:
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:/Windows/Fonts
           QTEST_FUNCTION_TIMEOUT: '30000'
         run: |
           $exe = "tests/build/$env:BUILD_TYPE/mainwindow_test.exe"
