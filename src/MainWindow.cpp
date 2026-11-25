@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include <QStandardPaths>
 #include <QMessageBox>
 #include <QTimer>
 
@@ -176,9 +177,23 @@ void MainWindow::initializer() {
   status_view->setFont(monospace_font);
 }
 
+// The minipro on PATH as an absolute path, or empty if there is none. Started by bare name,
+// Windows would search the current directory before PATH, so a minipro.exe planted in the folder
+// the app was started from would run instead.
+QString MainWindow::minipro_path() {
+  return QStandardPaths::findExecutable("minipro");
+}
+
 void MainWindow::run_async_process(const QStringList &process_arguments,
                                    AsyncOperation operation) {
   if (refuse_if_operation_running()) return;
+  const QString program = minipro_path();
+  if (program.isEmpty()) {
+    status_view->appendPlainText("[Error]: could not start minipro: it is not on PATH");
+    status_view->ensureCursorVisible();
+    build_default_hex_output();
+    return;
+  }
   QString process_arguments_string = "";
   running = RunningOperation{};
   running.kind = operation;
@@ -202,7 +217,7 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
   update_controls();  // async_process is set: disables everything that starts minipro
-  async_process->start("minipro", process_arguments);
+  async_process->start(program, process_arguments);
   // On Windows, start() reports FailedToStart before it returns, and async_process_error() has
   // then already ended the operation and cleared async_process.
   if (async_process == nullptr) return;
@@ -297,8 +312,14 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
   }
   target_plain_text_edit.appendPlainText("[Input]: minipro " + process_arguments_string);
 
+  const QString program = minipro_path();
+  if (program.isEmpty()) {
+    target_plain_text_edit.appendPlainText("[Error]: could not start minipro: it is not on PATH");
+    target_plain_text_edit.ensureCursorVisible();
+    return {};
+  }
   QProcess process;
-  process.start("minipro", process_arguments);
+  process.start(program, process_arguments);
   // Without a programmer, minipro asks "Which database do you want to display?" on stdin.
   // End-of-input makes it abort instead of blocking until the timeout.
   process.closeWriteChannel();

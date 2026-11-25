@@ -15,8 +15,10 @@ namespace {
 // and on Windows the code Qt's TerminateProcess() call uses.
 #ifdef Q_OS_WIN
 constexpr int killedExitCode = 0xf291;
+constexpr auto fakeFileName = "minipro.exe";
 #else
 constexpr int killedExitCode = SIGKILL;
+constexpr auto fakeFileName = "minipro";
 #endif
 }  // namespace
 
@@ -36,6 +38,7 @@ class MainWindowTest : public QObject {
   void oddDeviceInfoOutput_data();
   void oddDeviceInfoOutput();
   void missingMiniproDisablesUi();
+  void miniproInWorkingDirectoryIsNotRun();
   void detectsProgrammer();
   void missingProgrammerDisablesUi();
   void presenceCheckParsing_data();
@@ -131,11 +134,7 @@ void MainWindowTest::initTestCase() {
   emptyBinDir = root.filePath("empty");
   logPath = root.filePath("calls.log");
 
-#ifdef Q_OS_WIN
-  const QString fake = fakeBinDir + "/minipro.exe";
-#else
-  const QString fake = fakeBinDir + "/minipro";
-#endif
+  const QString fake = fakeBinDir + "/" + fakeFileName;
   QVERIFY2(QFile::copy(FAKE_MINIPRO_SOURCE, fake), FAKE_MINIPRO_SOURCE);
   QVERIFY(QFile::setPermissions(fake, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
 
@@ -209,6 +208,30 @@ void MainWindowTest::missingMiniproDisablesUi() {
   QVERIFY(!mw->buttons.update->isEnabled());
   QVERIFY(!mw->targets.device->isEnabled());
   QCOMPARE(mw->targets.device->count(), 0);
+}
+
+void MainWindowTest::miniproInWorkingDirectoryIsNotRun() {
+  // Regression (security audit): started by bare name, Windows searched the current directory
+  // before PATH, so a minipro.exe planted there ran at startup and for every operation. Only
+  // PATH may be searched. (Unix never searched the current directory; this guards Windows.)
+  auto mw = makeWindow();  // the fake on PATH: a device is selected and Read is enabled
+  const QString planted = QDir::current().filePath(fakeFileName);
+  QVERIFY(QFile::copy(FAKE_MINIPRO_SOURCE, planted));
+  QVERIFY(QFile::setPermissions(planted, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+  qputenv("PATH", emptyBinDir.toLocal8Bit());
+  const auto callsBefore = loggedCalls().size();
+
+  mw->read_device();
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro: it is not on PATH"));
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->buttons.read->isEnabled());
+
+  auto second = makeWindow();  // startup: --version
+  QVERIFY(!second->minipro_found);
+  QCOMPARE(second->window->windowTitle(), QString("minipro CLI not found!"));
+
+  QVERIFY(QFile::remove(planted));
+  QCOMPARE(loggedCalls().size(), callsBefore);  // the planted copy never ran
 }
 
 void MainWindowTest::detectsProgrammer() {
@@ -856,8 +879,9 @@ void MainWindowTest::oddDeviceInfoOutput_data() {
   QTest::newRow("unknown lines and order")
       << "Something new: 1\nMemory: 8192 Bytes\nName: X28C64\nVPP: 12V\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("no fields") << "Unexpected output\n" << "" << "";
+  const QString esc(QChar(0x1b));
   QTest::newRow("escape sequences")
-      << "\033[1mWarning\033[0m\nName: X28C64\033[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
+      << esc + "[1mWarning" + esc + "[0m\nName: X28C64" + esc + "[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("very long line")
       << "Name: X28C64\nMemory: " + QString(100000, 'A') + "\n" << "X28C64" << QString(100000, 'A');
 }

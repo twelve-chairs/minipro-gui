@@ -125,6 +125,7 @@ class MainWindow : public QMainWindow {
   // minipro is stopped. Device operations run asynchronously and have no limit.
   static int sync_timeout_ms;
   static QString run_process(QPlainTextEdit &, const QStringList &, const QString &);
+  static QString minipro_path();
   // What the running async process is doing, so its result is handled correctly.
   enum class AsyncOperation { Read, Write, FirmwareUpdate, Erase, Check, HardwareCheck };
 

@@ -49,10 +49,6 @@ add_qt_test(mainwindow_test
 # The stand-in for the minipro CLI. MainWindowTest copies it into a temp dir as "minipro".
 # Plain C++ with no Qt, so it runs on Windows without Qt DLLs next to it.
 add_executable(fake_minipro fake_minipro.cpp)
-if (MSVC)
-  # std::getenv is fine here: the fake only reads its own FAKE_MINIPRO_* settings.
-  target_compile_definitions(fake_minipro PRIVATE _CRT_SECURE_NO_WARNINGS)
-endif ()
 add_dependencies(mainwindow_test fake_minipro)
 target_compile_definitions(mainwindow_test PRIVATE
         FAKE_MINIPRO_SOURCE="$<TARGET_FILE:fake_minipro>")
