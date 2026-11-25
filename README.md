@@ -11,7 +11,7 @@
 
 ![screenshot.png](res%2Fscreenshot.png)
 ## Installation
-Coming soon as pre-compiled binary releases. For now, please build from source.
+Download a ready-to-run package from [Releases](https://github.com/twelve-chairs/minipro-gui/releases): a `.zip` for Windows, a `.dmg` for macOS (Apple silicon and Intel) and an AppImage for Linux. The release notes say how to open each one. You still need the [minipro CLI](https://gitlab.com/DavidGriffith/minipro) installed (see Dependencies below). Or build from source.
 ## Dependencies
 #### MacOS
 
