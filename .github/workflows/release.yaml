@@ -144,11 +144,11 @@ jobs:
           # linuxdeploy takes icons up to 512x512; the source icon is 1024x1024.
           convert res/AppIcon.png -resize 256x256 minipro-gui.png
 
-          # Fixed releases, checked against their SHA-256 before they run.
+          # Fixed releases, over HTTPS only (redirects too), checked against their SHA-256 before they run.
           mkdir tools
-          curl -sSfL -o tools/linuxdeploy-x86_64.AppImage \
+          curl --proto '=https' --proto-redir '=https' -sSfL -o tools/linuxdeploy-x86_64.AppImage \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
-          curl -sSfL -o tools/linuxdeploy-plugin-qt-x86_64.AppImage \
+          curl --proto '=https' --proto-redir '=https' -sSfL -o tools/linuxdeploy-plugin-qt-x86_64.AppImage \
             https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage
           sha256sum -c - <<'EOF'
           c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d  tools/linuxdeploy-x86_64.AppImage
