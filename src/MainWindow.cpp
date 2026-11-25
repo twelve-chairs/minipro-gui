@@ -177,11 +177,20 @@ void MainWindow::initializer() {
   status_view->setFont(monospace_font);
 }
 
-// The minipro on PATH as an absolute path, or empty if there is none. Started by bare name,
-// Windows would search the current directory before PATH, so a minipro.exe planted in the folder
-// the app was started from would run instead.
+// The minipro on PATH, or else in minipro_fallback_dirs, as an absolute path; empty if there is
+// none. Never the current directory: started by bare name, Windows would search it before PATH,
+// so a minipro.exe planted in the folder the app was started from would run instead.
 QString MainWindow::minipro_path() {
-  return QStandardPaths::findExecutable("minipro");
+  if (QString found = QStandardPaths::findExecutable("minipro"); !found.isEmpty()) return found;
+  if (minipro_fallback_dirs.isEmpty()) return {};
+  return QStandardPaths::findExecutable("minipro", minipro_fallback_dirs);
+}
+
+// Why minipro_path() found nothing, for the Output pane.
+QString MainWindow::minipro_not_found_message() {
+  QString searched = "PATH";
+  for (const QString &dir : minipro_fallback_dirs) searched += ", " + dir;
+  return "[Error]: could not start minipro: it was not found (searched " + searched + ")";
 }
 
 void MainWindow::run_async_process(const QStringList &process_arguments,
@@ -189,7 +198,7 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   if (refuse_if_operation_running()) return;
   const QString program = minipro_path();
   if (program.isEmpty()) {
-    status_view->appendPlainText("[Error]: could not start minipro: it is not on PATH");
+    status_view->appendPlainText(minipro_not_found_message());
     status_view->ensureCursorVisible();
     build_default_hex_output();
     return;
@@ -300,6 +309,14 @@ QStringList MainWindow::parse_action_checkboxes() const {
 }
 
 int MainWindow::sync_timeout_ms = 10000;
+#ifdef Q_OS_MACOS
+// Apps opened from the Finder get launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), which has
+// neither Homebrew's folder nor /usr/local/bin, where `make install` puts minipro. Same order as
+// Homebrew's shell setup.
+QStringList MainWindow::minipro_fallback_dirs{"/opt/homebrew/bin", "/usr/local/bin"};
+#else
+QStringList MainWindow::minipro_fallback_dirs;
+#endif
 
 // Runs a quick query and returns its stdout or stderr. Blocks the UI, so only for commands that
 // finish in well under a second; device operations go through run_async_process().
@@ -314,7 +331,7 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
 
   const QString program = minipro_path();
   if (program.isEmpty()) {
-    target_plain_text_edit.appendPlainText("[Error]: could not start minipro: it is not on PATH");
+    target_plain_text_edit.appendPlainText(minipro_not_found_message());
     target_plain_text_edit.ensureCursorVisible();
     return {};
   }
