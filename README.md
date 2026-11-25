@@ -66,6 +66,6 @@ git clone https://github.com/twelve-chairs/minipro-gui.git
 cd minipro-gui
 cmake -A x64 -DCMAKE_PREFIX_PATH=C:\Qt\6.10.3\msvc2022_64 -S . -B build
 cmake --build build --config MinSizeRel --target minipro-gui
-C:\Qt\6.10.3\msvc2022_64\bin\windeployqt.exe --release --no-translations build\MinSizeRel\minipro-gui.exe
+C:\Qt\6.10.3\msvc2022_64\bin\windeployqt.exe --release --no-translations --no-network --no-opengl-sw build\MinSizeRel\minipro-gui.exe
 .\build\MinSizeRel\minipro-gui.exe
 ```
