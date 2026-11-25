@@ -91,6 +91,10 @@ change for the user to decide, not something to slip into a code review:
   both installed by the user. Adding another one needs a reason in the commit
   message.
 - GitHub Actions run with least-privilege `permissions:` (the workflows set
-  `contents: read`), never use `pull_request_target` to check out PR code, and
+  `contents: read`). The one exception is `release.yaml`'s Publish job, which
+  runs only for a pushed version tag and may write releases and attestations.
+  Release builds don't use caches, and tools they download are pinned to a
+  release and checked against a SHA-256. Workflows never use
+  `pull_request_target` to check out PR code, and
   never echo secrets. Every action is pinned to a commit SHA, with its version
   in a comment (`actions/checkout@<sha> # v7.0.1`).
