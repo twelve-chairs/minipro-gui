@@ -17,6 +17,9 @@
 #   FAKE_MINIPRO_INFO_SLEEP   seconds -l and -d take (default 0)
 #   FAKE_MINIPRO_INFO_FAIL    if set, -d reports an unknown device and exits 1
 #   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
+#   FAKE_MINIPRO_LIST_EMPTY   if set, -l prints no devices
+#   FAKE_MINIPRO_TL866A       if set, -F asks like minipro does for a TL866A/CS (numbered menu)
+#   FAKE_MINIPRO_FW_PROMPT_UNKNOWN  if set, -F asks a question the app doesn't recognise
 #   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (printf %b escapes)
 #   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (printf %b escapes)
 
@@ -65,6 +68,9 @@ esac
 
 case "$1" in
   -l)
+    if [ -n "$FAKE_MINIPRO_LIST_EMPTY" ]; then
+      exit 0
+    fi
     if [ -n "$FAKE_MINIPRO_CRLF" ]; then
       printf 'W27C512\r\nAT28C256\r\n27C256\r\nAT28C256\r\n'
     else
@@ -110,6 +116,41 @@ while [ $# -gt 0 ]; do
       echo "Reading Code...  0.10Sec  OK" >&2
       ;;
     -F)
+      if [ -n "$FAKE_MINIPRO_FW_PROMPT_UNKNOWN" ]; then
+        # A prompt worded unlike any minipro release, as a future version might ask.
+        printf 'Really flash the programmer? [yes/no] ' >&2
+        read -r reply || reply=""
+        if [ "$reply" != "yes" ]; then
+          echo "Firmware update aborted." >&2
+          exit 1
+        fi
+        echo "Firmware update completed." >&2
+        shift
+        continue
+      fi
+      if [ -n "$FAKE_MINIPRO_TL866A" ]; then
+        # tl866a.c: versions, then a numbered menu; 1 reflashes the device's own variant.
+        echo "Found TL866CS 03.2.85 (0x255)" >&2
+        echo "$2 contains firmware version 03.2.86 (newer)" >&2
+        printf '\n\nWhich firmware version do you want to reflash? \n1) Device default (CS)\n2) A\n3) Exit\n' >&2
+        read -r choice || choice=""
+        case "$choice" in
+          1)
+            echo "Reflashing TL866CS firmware... OK" >&2
+            echo "Firmware update completed." >&2
+            ;;
+          2)
+            echo "Reflashing TL866A firmware... OK" >&2
+            echo "Firmware update completed." >&2
+            ;;
+          *)
+            echo "Firmware update aborted." >&2
+            exit 1
+            ;;
+        esac
+        shift
+        continue
+      fi
       # Like minipro, show the versions and ask for confirmation on stdin; anything but y aborts.
       echo "Found TL866II+ 04.2.126 (0x27e)" >&2
       echo "$2 contains firmware version 04.2.132 (newer)" >&2
