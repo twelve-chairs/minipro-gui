@@ -20,6 +20,7 @@ class MainWindowTest : public QObject {
 
   // Startup / discovery
   void detectsMinipro();
+  void windowHasAppIcon();
   void versionParsing_data();
   void versionParsing();
   void oddDeviceInfoOutput_data();
@@ -1169,6 +1170,14 @@ void MainWindowTest::cancelHardwareCheckAsks() {
   QCOMPARE(asked, 2);
   QTRY_VERIFY(mw->async_process == nullptr);
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
+}
+
+void MainWindowTest::windowHasAppIcon() {
+  // Regression: ":/res/AppIcon.png" was used but no resource file was compiled in, so the
+  // window had no icon.
+  QVERIFY(QFile::exists(":/res/AppIcon.png"));
+  auto mw = makeWindow();
+  QVERIFY(!mw->window->windowIcon().pixmap(64, 64).isNull());
 }
 
 QTEST_MAIN(MainWindowTest)
