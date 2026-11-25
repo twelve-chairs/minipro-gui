@@ -3,61 +3,62 @@
 
 namespace {
 // minipro's confirmation prompt for -F (tl866iiplus.c, t48.c, t56.c).
-const QString firmware_prompt = "Do you want to continue with firmware update?";
+const QString firmware_prompt_text = "Do you want to continue with firmware update?";
 // The "erase to end of line" terminal code minipro prints with its progress output.
 const QString erase_to_end_of_line = QString(QChar(0x1B)) + "[K";
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   initializer();
+  auto *layout = new QGridLayout(window.get());
 
   auto *groupBox = new QGroupBox(tr("Targets"));
   groupBox->setAlignment(Qt::AlignTop);
   auto *vbox = new QGridLayout;
-  vbox->addWidget(combobox_programmer, 0, 0, Qt::AlignTop);
-  connect(combobox_programmer, SIGNAL (highlighted(int)), this, SLOT (check_for_programmer()));
-  vbox->addWidget(button_update, 0, 1);
-  connect(button_update, SIGNAL (released()), this, SLOT (update_firmware()));
-  vbox->addWidget(combobox_device, 1, 0, 1, 0);
-  connect(combobox_device, SIGNAL (currentTextChanged(QString)), this, SLOT (select_device(QString)));
+  vbox->addWidget(targets.programmer, 0, 0, Qt::AlignTop);
+  connect(targets.programmer, SIGNAL (highlighted(int)), this, SLOT (check_for_programmer()));
+  vbox->addWidget(buttons.update, 0, 1);
+  connect(buttons.update, SIGNAL (released()), this, SLOT (update_firmware()));
+  vbox->addWidget(targets.device, 1, 0, 1, 0);
+  connect(targets.device, SIGNAL (currentTextChanged(QString)), this, SLOT (select_device(QString)));
   groupBox->setLayout(vbox);
   layout->addWidget(groupBox, 0, 0);
 
   auto *groupBox3 = new QGroupBox(tr("Actions"));
   groupBox3->setAlignment(Qt::AlignTop);
   auto *vbox3 = new QGridLayout;
-  vbox3->addWidget(pin_check, 0, 0, Qt::AlignTop);
-  vbox3->addWidget(blank_check, 0, 1);
-  vbox3->addWidget(erase_device, 1, 0, Qt::AlignTop);
-  vbox3->addWidget(hardware_check, 1, 1);
-  vbox3->addWidget(button_run_command, 2, 0, 1, 0);
-  connect(button_run_command, SIGNAL (released()), this, SLOT (run_command()));
-  vbox3->addWidget(no_id_error, 4, 0);
-  vbox3->addWidget(skip_id, 5, 0);
-  vbox3->addWidget(no_size_error, 4, 1);
-  vbox3->addWidget(skip_verify, 5, 1);
-  vbox3->addWidget(button_read, 6, 0);
-  connect(button_read, SIGNAL (released()), this, SLOT (read_device()));
-  vbox3->addWidget(button_write, 6, 1);
-  connect(button_write, SIGNAL (released()), this, SLOT (write_device()));
+  vbox3->addWidget(options.pin_check, 0, 0, Qt::AlignTop);
+  vbox3->addWidget(actions.blank_check, 0, 1);
+  vbox3->addWidget(actions.erase, 1, 0, Qt::AlignTop);
+  vbox3->addWidget(actions.hardware_check, 1, 1);
+  vbox3->addWidget(buttons.run_command, 2, 0, 1, 0);
+  connect(buttons.run_command, SIGNAL (released()), this, SLOT (run_command()));
+  vbox3->addWidget(options.no_id_error, 4, 0);
+  vbox3->addWidget(options.skip_id, 5, 0);
+  vbox3->addWidget(options.no_size_error, 4, 1);
+  vbox3->addWidget(options.skip_verify, 5, 1);
+  vbox3->addWidget(buttons.read, 6, 0);
+  connect(buttons.read, SIGNAL (released()), this, SLOT (read_device()));
+  vbox3->addWidget(buttons.write, 6, 1);
+  connect(buttons.write, SIGNAL (released()), this, SLOT (write_device()));
   groupBox3->setLayout(vbox3);
   layout->addWidget(groupBox3, 2, 0);
 
   auto *groupBox4 = new QGroupBox(tr("Device Info"));
   auto *vbox4 = new QGridLayout;
-  vbox4->addWidget(device_name_label, 0, 0);
-  vbox4->addWidget(device_name, 0, 1);
-  vbox4->addWidget(device_memory_label, 1, 0);
-  vbox4->addWidget(device_memory, 1, 1);
-  vbox4->addWidget(device_package_label, 2, 0);
-  vbox4->addWidget(device_package, 2, 1);
+  vbox4->addWidget(new QLabel(tr("Name")), 0, 0);
+  vbox4->addWidget(device_info.name, 0, 1);
+  vbox4->addWidget(new QLabel(tr("Memory")), 1, 0);
+  vbox4->addWidget(device_info.memory, 1, 1);
+  vbox4->addWidget(new QLabel(tr("Package")), 2, 0);
+  vbox4->addWidget(device_info.package, 2, 1);
 
-  vbox4->addWidget(device_protocol_label, 0, 2);
-  vbox4->addWidget(device_protocol, 0, 3);
-  vbox4->addWidget(device_readbuffer_label, 1, 2);
-  vbox4->addWidget(device_readbuffer, 1, 3);
-  vbox4->addWidget(device_writebuffer_label, 2, 2);
-  vbox4->addWidget(device_writebuffer, 2, 3);
+  vbox4->addWidget(new QLabel(tr("Protocol")), 0, 2);
+  vbox4->addWidget(device_info.protocol, 0, 3);
+  vbox4->addWidget(new QLabel(tr("Read Buffer")), 1, 2);
+  vbox4->addWidget(device_info.read_buffer, 1, 3);
+  vbox4->addWidget(new QLabel(tr("Write Buffer")), 2, 2);
+  vbox4->addWidget(device_info.write_buffer, 2, 3);
   groupBox4->setLayout(vbox4);
   layout->addWidget(groupBox4, 0, 1);
 
@@ -103,14 +104,14 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::initializer() {
-  confirm_firmware_update = [this](const QString &minipro_output) {
+  confirmations.firmware_update = [this](const QString &minipro_output) {
     return QMessageBox::question(window.get(), tr("Update programmer firmware?"),
                                  tr("minipro is ready to update the programmer's firmware:\n\n%1\n\n"
                                     "Don't unplug the programmer until the update has finished.")
                                      .arg(minipro_output.trimmed()),
                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
   };
-  confirm_device_change = [this](const QString &title, const QString &text) {
+  confirmations.device_change = [this](const QString &title, const QString &text) {
     return QMessageBox::warning(window.get(), title, text, QMessageBox::Yes | QMessageBox::No,
                                 QMessageBox::No) == QMessageBox::Yes;
   };
@@ -122,48 +123,40 @@ void MainWindow::initializer() {
   window->resize(1000, 600);
   window->setMinimumSize(800, 480);
 
-  layout = new QGridLayout(window.get());
+  targets.programmer = new QComboBox();
+  targets.device = new QComboBox();
 
-  combobox_programmer = new QComboBox();
-  combobox_device = new QComboBox();
+  buttons.run_command = new QPushButton("Run Command");
+  buttons.write = new QPushButton("Write to Device");
+  buttons.read = new QPushButton("Read from Device");
+  buttons.update = new QPushButton("Update Firmware");
 
-  button_run_command = new QPushButton("Run Command");
-  button_write = new QPushButton("Write to Device");
-  button_read = new QPushButton("Read from Device");
-  button_update = new QPushButton("Update Firmware");
+  options.no_id_error = new QCheckBox("Ignore ID Error");
+  options.skip_id = new QCheckBox("Skip ID Check");
+  options.no_size_error = new QCheckBox("Ignore Size Error");
+  options.skip_verify = new QCheckBox("Skip Verification");
+  options.pin_check = new QCheckBox("Pin Check");
+  actions.blank_check = new QCheckBox("Blank Check");
+  actions.erase = new QCheckBox("Erase Device");
+  actions.hardware_check = new QCheckBox("Hardware Check");
 
-  no_id_error = new QCheckBox("Ignore ID Error");
-  skip_id = new QCheckBox("Skip ID Check");
-  no_size_error = new QCheckBox("Ignore Size Error");
-  skip_verify = new QCheckBox("Skip Verification");
-  pin_check = new QCheckBox("Pin Check");
-  blank_check = new QCheckBox("Blank Check");
-  erase_device = new QCheckBox("Erase Device");
-  hardware_check = new QCheckBox("Hardware Check");
-
-  device_name_label = new QLabel("Name");
-  device_name = new QLineEdit();
-  device_name->setReadOnly(true);
-  device_memory_label = new QLabel("Memory");
-  device_memory = new QLineEdit();
-  device_memory->setReadOnly(true);
-  device_package_label = new QLabel("Package");
-  device_package = new QLineEdit();
-  device_package->setReadOnly(true);
-  device_protocol_label = new QLabel("Protocol");
-  device_protocol = new QLineEdit();
-  device_protocol->setReadOnly(true);
-  device_readbuffer_label = new QLabel("Read Buffer");
-  device_readbuffer = new QLineEdit();
-  device_readbuffer->setReadOnly(true);
-  device_writebuffer_label = new QLabel("Write Buffer");
-  device_writebuffer = new QLineEdit();
-  device_writebuffer->setReadOnly(true);
+  device_info.name = new QLineEdit();
+  device_info.name->setReadOnly(true);
+  device_info.memory = new QLineEdit();
+  device_info.memory->setReadOnly(true);
+  device_info.package = new QLineEdit();
+  device_info.package->setReadOnly(true);
+  device_info.protocol = new QLineEdit();
+  device_info.protocol->setReadOnly(true);
+  device_info.read_buffer = new QLineEdit();
+  device_info.read_buffer->setReadOnly(true);
+  device_info.write_buffer = new QLineEdit();
+  device_info.write_buffer->setReadOnly(true);
 
   hexTableView = new QTableView(window.get());
   status_view = new QPlainTextEdit(window.get());
 
-  monospace_font.setFamily("Courier New");
+  QFont monospace_font("Courier New");
   monospace_font.setStyleHint(QFont::Monospace);
   status_view->setFont(monospace_font);
 }
@@ -197,8 +190,8 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
   set_device_operation_running(true);
-  firmware_update_output.clear();
-  firmware_prompt_answered = false;
+  firmware_prompt.output.clear();
+  firmware_prompt.answered = false;
   async_process->start("minipro", process_arguments);
   // minipro asks some questions on stdin. A firmware update's y/n prompt is answered from the
   // GUI (answer_firmware_prompt_if_asked). Nothing answers the others, such as which database to
@@ -209,13 +202,13 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
 }
 
 void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
-  if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt_answered) return;
-  firmware_update_output += new_output;
-  if (!firmware_update_output.contains(firmware_prompt)) return;
+  if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt.answered) return;
+  firmware_prompt.output += new_output;
+  if (!firmware_prompt.output.contains(firmware_prompt_text)) return;
   // Set before asking: the dialog runs an event loop, and more output may arrive meanwhile.
-  firmware_prompt_answered = true;
+  firmware_prompt.answered = true;
   QProcess *process = async_process;
-  const bool go_ahead = confirm_firmware_update(firmware_update_output);
+  const bool go_ahead = confirmations.firmware_update(firmware_prompt.output);
   if (process != async_process) return;  // the operation ended while the dialog was open
   status_view->appendPlainText(go_ahead ? "[Input]: y" : "[Input]: n");
   process->write(go_ahead ? "y\n" : "n\n");
@@ -235,10 +228,10 @@ void MainWindow::set_device_operation_running(bool running) {
   if (running) {
     disable_buttons();
     // Selecting a device or programmer also runs minipro against the programmer.
-    combobox_programmer->setDisabled(true);
+    targets.programmer->setDisabled(true);
     return;
   }
-  combobox_programmer->setDisabled(!minipro_found);
+  targets.programmer->setDisabled(!minipro_found);
   if (programmer_found) {
     enable_buttons();
   } else {
@@ -268,11 +261,11 @@ void MainWindow::async_process_std_output() const {
 // Options modify an operation; they are safe to add to Read, Write and Run Command.
 QStringList MainWindow::parse_option_checkboxes() const {
   QStringList arguments;
-  if (no_id_error->isChecked()) arguments.append("--no_id_error");
-  if (skip_id->isChecked()) arguments.append("--skip_id");
-  if (no_size_error->isChecked()) arguments.append("--no_size_error");
-  if (skip_verify->isChecked()) arguments.append("--skip_verify");
-  if (pin_check->isChecked()) arguments.append("--pin_check");
+  if (options.no_id_error->isChecked()) arguments.append("--no_id_error");
+  if (options.skip_id->isChecked()) arguments.append("--skip_id");
+  if (options.no_size_error->isChecked()) arguments.append("--no_size_error");
+  if (options.skip_verify->isChecked()) arguments.append("--skip_verify");
+  if (options.pin_check->isChecked()) arguments.append("--pin_check");
   return arguments;
 }
 
@@ -281,9 +274,9 @@ QStringList MainWindow::parse_option_checkboxes() const {
 // added to Read, Write or Update Firmware.
 QStringList MainWindow::parse_action_checkboxes() const {
   QStringList arguments;
-  if (blank_check->isChecked()) arguments.append("--blank_check");
-  if (erase_device->isChecked()) arguments.append("--erase");
-  if (hardware_check->isChecked()) arguments.append("--hardware_check");
+  if (actions.blank_check->isChecked()) arguments.append("--blank_check");
+  if (actions.erase->isChecked()) arguments.append("--erase");
+  if (actions.hardware_check->isChecked()) arguments.append("--hardware_check");
   return arguments;
 }
 
@@ -352,7 +345,7 @@ void MainWindow::check_for_minipro() {
       check_for_programmer();
       get_devices();
     } else {
-      combobox_programmer->setDisabled(true);
+      targets.programmer->setDisabled(true);
     }
   }
 }
@@ -370,15 +363,15 @@ void MainWindow::check_for_programmer() {
     QRegularExpressionMatch match = re.match(run_process(*status_view, arguments, "stderr"));
     // This runs on every highlight, so refill rather than add duplicates. Block signals while
     // refilling: changing the current item emits highlighted(), which would call this again.
-    const QSignalBlocker blocker(combobox_programmer);
-    combobox_programmer->clear();
+    const QSignalBlocker blocker(targets.programmer);
+    targets.programmer->clear();
     if (match.hasMatch()) {
       programmer = match.captured(1).trimmed();
       programmer_found = true;
-      combobox_programmer->addItem(programmer);
+      targets.programmer->addItem(programmer);
       enable_buttons();
     } else {
-      combobox_programmer->setPlaceholderText("No programmer found");
+      targets.programmer->setPlaceholderText("No programmer found");
       programmer_found = false;
       disable_buttons();
     }
@@ -386,19 +379,19 @@ void MainWindow::check_for_programmer() {
 }
 
 void MainWindow::disable_buttons() {
-  combobox_device->setDisabled(true);
-  button_run_command->setDisabled(true);
-  button_read->setDisabled(true);
-  button_write->setDisabled(true);
-  button_update->setDisabled(true);
+  targets.device->setDisabled(true);
+  buttons.run_command->setDisabled(true);
+  buttons.read->setDisabled(true);
+  buttons.write->setDisabled(true);
+  buttons.update->setDisabled(true);
 }
 
 void MainWindow::enable_buttons() {
-  combobox_device->setDisabled(false);
-  button_run_command->setDisabled(false);
-  button_read->setDisabled(false);
-  button_write->setDisabled(false);
-  button_update->setDisabled(false);
+  targets.device->setDisabled(false);
+  buttons.run_command->setDisabled(false);
+  buttons.read->setDisabled(false);
+  buttons.write->setDisabled(false);
+  buttons.update->setDisabled(false);
 }
 
 void MainWindow::get_devices() {
@@ -415,7 +408,7 @@ void MainWindow::get_devices() {
     devices_list.sort();
     devices_list.removeDuplicates();
 
-    combobox_device->addItems(devices_list);
+    targets.device->addItems(devices_list);
   }
 }
 
@@ -432,8 +425,8 @@ void MainWindow::select_device(const QString &selected_device) {
   if (minipro_found && selected_device != "") {
     device = selected_device;
     // Clear first: if -d fails, the previous device's details must not stay next to the new name.
-    for (QLineEdit *field : {device_name, device_memory, device_package, device_protocol,
-                             device_readbuffer, device_writebuffer}) {
+    for (QLineEdit *field : {device_info.name, device_info.memory, device_info.package, device_info.protocol,
+                             device_info.read_buffer, device_info.write_buffer}) {
       field->clear();
     }
 
@@ -445,12 +438,12 @@ void MainWindow::select_device(const QString &selected_device) {
       status_view->ensureCursorVisible();
       return;
     }
-    device_name->setText(device_field(info, "Name"));
-    device_memory->setText(device_field(info, "Memory"));
-    device_package->setText(device_field(info, "Package"));
-    device_protocol->setText(device_field(info, "Protocol"));
-    device_readbuffer->setText(device_field(info, "Read buffer size"));
-    device_writebuffer->setText(device_field(info, "Write buffer size"));
+    device_info.name->setText(device_field(info, "Name"));
+    device_info.memory->setText(device_field(info, "Memory"));
+    device_info.package->setText(device_field(info, "Package"));
+    device_info.protocol->setText(device_field(info, "Protocol"));
+    device_info.read_buffer->setText(device_field(info, "Read buffer size"));
+    device_info.write_buffer->setText(device_field(info, "Write buffer size"));
     build_default_hex_output();
   }
 }
@@ -467,7 +460,7 @@ void MainWindow::run_command() {
       return;
     }
     if (actions.first() == "--erase" &&
-        !confirm_device_change(tr("Erase %1?").arg(device),
+        !confirmations.device_change(tr("Erase %1?").arg(device),
                                tr("This erases everything on the %1 in the programmer.").arg(device))) {
       status_view->appendPlainText("[Cancelled]: erase " + device);
       return;
@@ -535,7 +528,7 @@ void MainWindow::write_device() {
 
 void MainWindow::write_file_to_device(const QString &file_name) {
   if (refuse_if_operation_running()) return;
-  if (!confirm_device_change(tr("Write to %1?").arg(device),
+  if (!confirmations.device_change(tr("Write to %1?").arg(device),
                              tr("This overwrites the contents of the %1 in the programmer with\n\n%2")
                                  .arg(device, QDir::toNativeSeparators(file_name)))) {
     status_view->appendPlainText("[Cancelled]: write to " + device);
@@ -590,5 +583,5 @@ void MainWindow::format_hex_table_columns() const {
   // (a 16 MiB image has a million rows).
   QHeaderView *rows = hexTableView->verticalHeader();
   rows->setSectionResizeMode(QHeaderView::Fixed);
-  rows->setDefaultSectionSize(QFontMetrics(monospace_font).height() + 8);
+  rows->setDefaultSectionSize(QFontMetrics(status_view->font()).height() + 8);
 }

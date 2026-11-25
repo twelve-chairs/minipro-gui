@@ -54,10 +54,6 @@ class MainWindow : public QMainWindow {
   std::unique_ptr<QWidget> window;
   bool minipro_found = false;
 
-  QGridLayout *layout;
-
-  QFont monospace_font;
-
   // Device reads go to read.bin in a private (0700) temporary folder, created at startup and
   // removed on exit. Never the working directory: a user's own file there could be overwritten,
   // a planted symlink could redirect the write, and apps started from the Finder run in "/".
@@ -67,51 +63,49 @@ class MainWindow : public QMainWindow {
   // The one running device operation, or nullptr. Owned by this window; deleted when it ends.
   QProcess *async_process = nullptr;
 
-  QPushButton *button_run_command;
-  QPushButton *button_write;
-  QPushButton *button_read;
-  QPushButton *button_update;
-
-  QLabel *device_name_label;
-  QLineEdit *device_name;
-  QLabel *device_memory_label;
-  QLineEdit *device_memory;
-  QLabel *device_package_label;
-  QLineEdit *device_package;
-  QLabel *device_protocol_label;
-  QLineEdit *device_protocol;
-  QLabel *device_readbuffer_label;
-  QLineEdit *device_readbuffer;
-  QLabel *device_writebuffer_label;
-  QLineEdit *device_writebuffer;
-  [[maybe_unused]] QLineEdit *device_other;
-
-  bool programmer_found;
-
+  bool programmer_found = false;
   QString programmer;
   QString device;
 
-  QComboBox *combobox_programmer;
-  QComboBox *combobox_device;
-  [[maybe_unused]] QComboBox *vpp;
-  [[maybe_unused]] QComboBox *vdd;
-  [[maybe_unused]] QComboBox *vcc;
+  // Widgets, grouped by panel. All are owned by `window` through Qt's parent-child tree.
+  struct Targets {
+    QComboBox *programmer = nullptr;
+    QComboBox *device = nullptr;
+  } targets;
+  struct DeviceButtons {
+    QPushButton *run_command = nullptr;
+    QPushButton *write = nullptr;
+    QPushButton *read = nullptr;
+    QPushButton *update = nullptr;
+  } buttons;
+  struct DeviceInfoFields {
+    QLineEdit *name = nullptr;
+    QLineEdit *memory = nullptr;
+    QLineEdit *package = nullptr;
+    QLineEdit *protocol = nullptr;
+    QLineEdit *read_buffer = nullptr;
+    QLineEdit *write_buffer = nullptr;
+  } device_info;
+  // Modify an operation; added to Read, Write and Run Command.
+  struct OptionCheckboxes {
+    QCheckBox *no_id_error = nullptr;
+    QCheckBox *skip_id = nullptr;
+    QCheckBox *no_size_error = nullptr;
+    QCheckBox *skip_verify = nullptr;
+    QCheckBox *pin_check = nullptr;
+  } options;
+  // Separate minipro operations; only Run Command uses them.
+  struct ActionCheckboxes {
+    QCheckBox *blank_check = nullptr;
+    QCheckBox *erase = nullptr;
+    QCheckBox *hardware_check = nullptr;
+  } actions;
 
-  QCheckBox *no_id_error;
-  QCheckBox *skip_id;
-  QCheckBox *no_size_error;
-  QCheckBox *skip_verify;
-  QCheckBox *pin_check;
-  QCheckBox *blank_check;
-  QCheckBox *erase_device;
-  QCheckBox *hardware_check;
+  QPlainTextEdit *status_view = nullptr;
 
-  QPlainTextEdit *status_view;
-
-  QTableView *hexTableView;
+  QTableView *hexTableView = nullptr;
   HexView hexViewModel;
 
-  QStringList programmers_list;
   QStringList devices_list;
 
   void initializer();
@@ -132,14 +126,19 @@ class MainWindow : public QMainWindow {
 
   void run_async_process(const QStringList &, AsyncOperation, const QString & = "stderr");
 
-  // Asks the user whether to go ahead with a firmware update. It receives minipro's output so far,
-  // which shows the installed and new firmware versions. Replaceable so tests never open a dialog.
-  std::function<bool(const QString &)> confirm_firmware_update;
-  // Asks before an operation that overwrites or erases the chip (title, text). Default answer No.
-  // Replaceable so tests never open a dialog.
-  std::function<bool(const QString &, const QString &)> confirm_device_change;
-  QString firmware_update_output;
-  bool firmware_prompt_answered = false;
+  // Yes/No questions, defaulting to No. Replaceable so tests never open a dialog.
+  struct Confirmations {
+    // Go ahead with a firmware update? Gets minipro's output so far, which shows the installed
+    // and new firmware versions.
+    std::function<bool(const QString &)> firmware_update;
+    // Go ahead with an operation that overwrites or erases the chip? (title, text)
+    std::function<bool(const QString &, const QString &)> device_change;
+  } confirmations;
+  // minipro's output during a firmware update, until its y/n prompt has been answered.
+  struct FirmwarePrompt {
+    QString output;
+    bool answered = false;
+  } firmware_prompt;
   void answer_firmware_prompt_if_asked(const QString &new_output);
   [[nodiscard]] bool refuse_if_operation_running() const;
   void set_device_operation_running(bool);

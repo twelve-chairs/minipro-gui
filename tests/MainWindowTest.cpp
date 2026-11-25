@@ -140,9 +140,9 @@ void MainWindowTest::cleanup() {
 MainWindowTest::WindowPtr MainWindowTest::makeWindow() {
   auto mw = std::make_unique<MainWindow>();
   // Never open a real dialog in tests; decline by default (the safe answer).
-  mw->confirm_firmware_update = [](const QString &) { return false; };
+  mw->confirmations.firmware_update = [](const QString &) { return false; };
   // Write and erase tests exercise the operation itself; declining is tested separately.
-  mw->confirm_device_change = [](const QString &, const QString &) { return true; };
+  mw->confirmations.device_change = [](const QString &, const QString &) { return true; };
   return mw;
 }
 
@@ -166,24 +166,24 @@ void MainWindowTest::missingMiniproDisablesUi() {
   QVERIFY(!mw->minipro_found);
   QVERIFY(!mw->programmer_found);
   QCOMPARE(mw->window->windowTitle(), QString("minipro CLI not found!"));
-  QVERIFY(!mw->button_read->isEnabled());
-  QVERIFY(!mw->button_write->isEnabled());
-  QVERIFY(!mw->button_run_command->isEnabled());
-  QVERIFY(!mw->button_update->isEnabled());
-  QVERIFY(!mw->combobox_device->isEnabled());
-  QCOMPARE(mw->combobox_device->count(), 0);
+  QVERIFY(!mw->buttons.read->isEnabled());
+  QVERIFY(!mw->buttons.write->isEnabled());
+  QVERIFY(!mw->buttons.run_command->isEnabled());
+  QVERIFY(!mw->buttons.update->isEnabled());
+  QVERIFY(!mw->targets.device->isEnabled());
+  QCOMPARE(mw->targets.device->count(), 0);
 }
 
 void MainWindowTest::detectsProgrammer() {
   auto mw = makeWindow();
   QVERIFY(mw->programmer_found);
   QCOMPARE(mw->programmer, QString("TL866II+"));
-  QCOMPARE(mw->combobox_programmer->itemText(0), QString("TL866II+"));
-  QVERIFY(mw->button_read->isEnabled());
-  QVERIFY(mw->button_write->isEnabled());
-  QVERIFY(mw->button_run_command->isEnabled());
-  QVERIFY(mw->button_update->isEnabled());
-  QVERIFY(mw->combobox_device->isEnabled());
+  QCOMPARE(mw->targets.programmer->itemText(0), QString("TL866II+"));
+  QVERIFY(mw->buttons.read->isEnabled());
+  QVERIFY(mw->buttons.write->isEnabled());
+  QVERIFY(mw->buttons.run_command->isEnabled());
+  QVERIFY(mw->buttons.update->isEnabled());
+  QVERIFY(mw->targets.device->isEnabled());
 }
 
 void MainWindowTest::missingProgrammerDisablesUi() {
@@ -191,10 +191,10 @@ void MainWindowTest::missingProgrammerDisablesUi() {
   auto mw = makeWindow();
   QVERIFY(mw->minipro_found);
   QVERIFY(!mw->programmer_found);
-  QCOMPARE(mw->combobox_programmer->placeholderText(), QString("No programmer found"));
-  QVERIFY(!mw->button_read->isEnabled());
-  QVERIFY(!mw->combobox_device->isEnabled());
-  QCOMPARE(mw->combobox_device->count(), 0);
+  QCOMPARE(mw->targets.programmer->placeholderText(), QString("No programmer found"));
+  QVERIFY(!mw->buttons.read->isEnabled());
+  QVERIFY(!mw->targets.device->isEnabled());
+  QCOMPARE(mw->targets.device->count(), 0);
   QVERIFY(!loggedCalls().contains("-l"));
 }
 
@@ -202,9 +202,9 @@ void MainWindowTest::deviceListIsSortedAndDeduplicated() {
   auto mw = makeWindow();
   const QStringList expected{"27C256", "AT28C256", "W27C512"};
   QCOMPARE(mw->devices_list, expected);
-  QCOMPARE(mw->combobox_device->count(), expected.size());
+  QCOMPARE(mw->targets.device->count(), expected.size());
   for (int i = 0; i < expected.size(); i++) {
-    QCOMPARE(mw->combobox_device->itemText(i), expected.at(i));
+    QCOMPARE(mw->targets.device->itemText(i), expected.at(i));
   }
 }
 
@@ -212,16 +212,16 @@ void MainWindowTest::selectDeviceFillsDeviceInfo() {
   auto mw = makeWindow();
   // Populating the combobox auto-selects the first device.
   QCOMPARE(mw->device, QString("27C256"));
-  QCOMPARE(mw->device_name->text(), QString("27C256"));
+  QCOMPARE(mw->device_info.name->text(), QString("27C256"));
 
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QCOMPARE(mw->device, QString("AT28C256"));
-  QCOMPARE(mw->device_name->text(), QString("AT28C256"));
-  QCOMPARE(mw->device_memory->text(), QString("32768 Bytes"));
-  QCOMPARE(mw->device_package->text(), QString("DIP28"));
-  QCOMPARE(mw->device_protocol->text(), QString("0x05"));
-  QCOMPARE(mw->device_readbuffer->text(), QString("1024 Bytes"));
-  QCOMPARE(mw->device_writebuffer->text(), QString("128 Bytes"));
+  QCOMPARE(mw->device_info.name->text(), QString("AT28C256"));
+  QCOMPARE(mw->device_info.memory->text(), QString("32768 Bytes"));
+  QCOMPARE(mw->device_info.package->text(), QString("DIP28"));
+  QCOMPARE(mw->device_info.protocol->text(), QString("0x05"));
+  QCOMPARE(mw->device_info.read_buffer->text(), QString("1024 Bytes"));
+  QCOMPARE(mw->device_info.write_buffer->text(), QString("128 Bytes"));
   QVERIFY(loggedCalls().contains("-d AT28C256"));
 }
 
@@ -266,10 +266,10 @@ void MainWindowTest::parseCheckboxesEachFlag() {
   QFETCH(bool, isAction);
   auto mw = makeWindow();
   const QMap<QString, QCheckBox *> boxes{
-      {"no_id_error", mw->no_id_error}, {"skip_id", mw->skip_id},
-      {"no_size_error", mw->no_size_error}, {"skip_verify", mw->skip_verify},
-      {"pin_check", mw->pin_check}, {"blank_check", mw->blank_check},
-      {"erase_device", mw->erase_device}, {"hardware_check", mw->hardware_check}};
+      {"no_id_error", mw->options.no_id_error}, {"skip_id", mw->options.skip_id},
+      {"no_size_error", mw->options.no_size_error}, {"skip_verify", mw->options.skip_verify},
+      {"pin_check", mw->options.pin_check}, {"blank_check", mw->actions.blank_check},
+      {"erase_device", mw->actions.erase}, {"hardware_check", mw->actions.hardware_check}};
   QVERIFY(boxes.contains(checkbox));
   boxes.value(checkbox)->setChecked(true);
   const QStringList expected{flag};
@@ -279,8 +279,8 @@ void MainWindowTest::parseCheckboxesEachFlag() {
 
 void MainWindowTest::parseCheckboxesAllChecked() {
   auto mw = makeWindow();
-  checkAll({mw->no_id_error, mw->skip_id, mw->no_size_error, mw->skip_verify, mw->pin_check,
-            mw->blank_check, mw->erase_device, mw->hardware_check});
+  checkAll({mw->options.no_id_error, mw->options.skip_id, mw->options.no_size_error, mw->options.skip_verify, mw->options.pin_check,
+            mw->actions.blank_check, mw->actions.erase, mw->actions.hardware_check});
   const QStringList options{"--no_id_error", "--skip_id", "--no_size_error", "--skip_verify",
                             "--pin_check"};
   const QStringList actions{"--blank_check", "--erase", "--hardware_check"};
@@ -290,8 +290,8 @@ void MainWindowTest::parseCheckboxesAllChecked() {
 
 void MainWindowTest::runCommandRunsOneActionWithOptions() {
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
-  checkAll({mw->erase_device, mw->pin_check});
+  mw->targets.device->setCurrentText("AT28C256");
+  checkAll({mw->actions.erase, mw->options.pin_check});
   mw->run_command();
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(loggedCalls().last(), QString("-p AT28C256 --erase --pin_check"));
@@ -308,10 +308,10 @@ void MainWindowTest::runCommandRefusesZeroOrSeveralActions() {
   // minipro runs a single action; given several it silently picks one.
   QFETCH(QStringList, checked);
   auto mw = makeWindow();
-  const QMap<QString, QCheckBox *> boxes{{"pin_check", mw->pin_check},
-                                         {"blank_check", mw->blank_check},
-                                         {"erase_device", mw->erase_device},
-                                         {"hardware_check", mw->hardware_check}};
+  const QMap<QString, QCheckBox *> boxes{{"pin_check", mw->options.pin_check},
+                                         {"blank_check", mw->actions.blank_check},
+                                         {"erase_device", mw->actions.erase},
+                                         {"hardware_check", mw->actions.hardware_check}};
   for (const auto &name : checked) boxes.value(name)->setChecked(true);
   const auto callsBefore = loggedCalls().size();
   mw->run_command();
@@ -323,8 +323,8 @@ void MainWindowTest::writePassesOnlyOptionFlags() {
   // Regression: --blank_check replaced -w (nothing written, exit 0) and --hardware_check ran
   // instead of the write.
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
-  checkAll({mw->blank_check, mw->erase_device, mw->hardware_check, mw->no_size_error});
+  mw->targets.device->setCurrentText("AT28C256");
+  checkAll({mw->actions.blank_check, mw->actions.erase, mw->actions.hardware_check, mw->options.no_size_error});
   mw->write_file_to_device("/images/fw.bin");
   QTRY_VERIFY(loggedCalls().contains("-p AT28C256 -w /images/fw.bin --no_size_error"));
   QTRY_VERIFY(mw->async_process == nullptr);
@@ -332,8 +332,8 @@ void MainWindowTest::writePassesOnlyOptionFlags() {
 
 void MainWindowTest::updateFirmwarePassesNoCheckboxFlags() {
   auto mw = makeWindow();
-  checkAll({mw->no_id_error, mw->skip_id, mw->no_size_error, mw->skip_verify, mw->pin_check,
-            mw->blank_check, mw->erase_device, mw->hardware_check});
+  checkAll({mw->options.no_id_error, mw->options.skip_id, mw->options.no_size_error, mw->options.skip_verify, mw->options.pin_check,
+            mw->actions.blank_check, mw->actions.erase, mw->actions.hardware_check});
   mw->update_firmware_from_file("/images/update.dat");
   QTRY_VERIFY(loggedCalls().contains("-F /images/update.dat"));
   QTRY_VERIFY(mw->async_process == nullptr);
@@ -356,7 +356,7 @@ void MainWindowTest::readDeviceFillsHexView() {
   qputenv("FAKE_MINIPRO_READ_HEX", bytes.toHex());
 
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   mw->read_device();
 
   const HexView &model = mw->hexViewModel;
@@ -375,8 +375,8 @@ void MainWindowTest::readDevicePassesOnlyOptionFlags() {
   // Regression: --blank_check replaced -r, so the "read" showed the previous read.
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("00").repeated(16));
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("W27C512");
-  checkAll({mw->skip_verify, mw->blank_check, mw->erase_device, mw->hardware_check});
+  mw->targets.device->setCurrentText("W27C512");
+  checkAll({mw->options.skip_verify, mw->actions.blank_check, mw->actions.erase, mw->actions.hardware_check});
   mw->read_device();
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("00"));
   QVERIFY(loggedCalls().contains("-p W27C512 -r " + mw->read_file_path() + " --skip_verify"));
@@ -499,16 +499,16 @@ void MainWindowTest::controlsDisabledWhileOperationRuns() {
   auto mw = makeWindow();
   mw->read_device();
   for (const QWidget *control : std::initializer_list<QWidget *>{
-           mw->button_read, mw->button_write, mw->button_update, mw->button_run_command,
-           mw->combobox_device, mw->combobox_programmer}) {
+           mw->buttons.read, mw->buttons.write, mw->buttons.update, mw->buttons.run_command,
+           mw->targets.device, mw->targets.programmer}) {
     QVERIFY2(!control->isEnabled(), qPrintable(control->metaObject()->className()));
   }
-  QTRY_VERIFY(mw->button_read->isEnabled());
-  QVERIFY(mw->button_write->isEnabled());
-  QVERIFY(mw->button_update->isEnabled());
-  QVERIFY(mw->button_run_command->isEnabled());
-  QVERIFY(mw->combobox_device->isEnabled());
-  QVERIFY(mw->combobox_programmer->isEnabled());
+  QTRY_VERIFY(mw->buttons.read->isEnabled());
+  QVERIFY(mw->buttons.write->isEnabled());
+  QVERIFY(mw->buttons.update->isEnabled());
+  QVERIFY(mw->buttons.run_command->isEnabled());
+  QVERIFY(mw->targets.device->isEnabled());
+  QVERIFY(mw->targets.programmer->isEnabled());
 }
 
 void MainWindowTest::secondOperationIsRefused() {
@@ -516,12 +516,12 @@ void MainWindowTest::secondOperationIsRefused() {
   qputenv("FAKE_MINIPRO_DELAY", "1");
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ab").repeated(16));
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   mw->read_device();
   mw->write_file_to_device("/images/fw.bin");
   mw->update_firmware_from_file("/images/update.dat");
   mw->read_device();
-  mw->erase_device->setChecked(true);
+  mw->actions.erase->setChecked(true);
   mw->run_command();
   QCOMPARE(mw->status_view->toPlainText().count("[Error]: another minipro operation is still running"), 4);
 
@@ -535,7 +535,7 @@ void MainWindowTest::controlsReenabledAfterFailedStart() {
   qputenv("PATH", emptyBinDir.toLocal8Bit());
   mw->read_device();
   QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro"));
-  QVERIFY(mw->button_read->isEnabled());
+  QVERIFY(mw->buttons.read->isEnabled());
   QVERIFY(mw->async_process == nullptr);
 }
 
@@ -557,7 +557,7 @@ void MainWindowTest::closingWindowLetsRunningWriteFinish() {
   qputenv("FAKE_MINIPRO_DONE_LOG", doneLog.toLocal8Bit());
   qputenv("FAKE_MINIPRO_DELAY", "1");
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   mw->write_file_to_device("/images/fw.bin");
   QTRY_VERIFY(loggedCalls().contains("-p AT28C256 -w /images/fw.bin"));
   mw.reset();
@@ -574,7 +574,7 @@ void MainWindowTest::firmwarePromptDoesNotHang() {
   QTRY_VERIFY(mw->async_process == nullptr);
   QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
   QVERIFY(mw->status_view->toPlainText().contains("[Error]: minipro exited with code 1"));
-  QVERIFY(mw->button_update->isEnabled());
+  QVERIFY(mw->buttons.update->isEnabled());
 }
 
 void MainWindowTest::presenceCheckParsing_data() {
@@ -599,10 +599,10 @@ void MainWindowTest::presenceCheckParsing() {
   else qputenv("FAKE_MINIPRO_PRESENCE", output.toLocal8Bit());
   auto mw = makeWindow();
   QCOMPARE(mw->programmer_found, !programmer.isEmpty());
-  QCOMPARE(mw->button_read->isEnabled(), !programmer.isEmpty());
+  QCOMPARE(mw->buttons.read->isEnabled(), !programmer.isEmpty());
   if (!programmer.isEmpty()) {
     QCOMPARE(mw->programmer, programmer);
-    QCOMPARE(mw->combobox_programmer->itemText(0), programmer);
+    QCOMPARE(mw->targets.programmer->itemText(0), programmer);
   }
 }
 
@@ -610,7 +610,7 @@ void MainWindowTest::presenceCheckDoesNotDuplicateProgrammer() {
   auto mw = makeWindow();
   mw->check_for_programmer();
   mw->check_for_programmer();
-  QCOMPARE(mw->combobox_programmer->count(), 1);
+  QCOMPARE(mw->targets.programmer->count(), 1);
 }
 
 void MainWindowTest::queryPromptDoesNotHang() {
@@ -620,7 +620,7 @@ void MainWindowTest::queryPromptDoesNotHang() {
   qputenv("FAKE_MINIPRO_INFO_PROMPT", "1");
   QElapsedTimer timer;
   timer.start();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
   QVERIFY(mw->status_view->toPlainText().contains("Aborted."));
 }
@@ -631,7 +631,7 @@ void MainWindowTest::slowQueryIsStopped() {
   qputenv("FAKE_MINIPRO_INFO_SLEEP", "5");
   QElapsedTimer timer;
   timer.start();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
   QVERIFY(mw->status_view->toPlainText().contains(
       "[Error]: minipro didn't finish within 500 ms and was stopped"));
@@ -657,7 +657,7 @@ void MainWindowTest::runCommandDoesNotBlockAndKeepsOrResetsView() {
   readFfRow(*mw);
 
   qputenv("FAKE_MINIPRO_DELAY", "1");
-  mw->blank_check->setChecked(true);
+  mw->actions.blank_check->setChecked(true);
   QElapsedTimer timer;
   timer.start();
   mw->run_command();
@@ -667,8 +667,8 @@ void MainWindowTest::runCommandDoesNotBlockAndKeepsOrResetsView() {
   // A blank check doesn't change the chip, so the last read stays.
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("FF"));
 
-  mw->blank_check->setChecked(false);
-  mw->erase_device->setChecked(true);
+  mw->actions.blank_check->setChecked(false);
+  mw->actions.erase->setChecked(true);
   mw->run_command();
   QTRY_VERIFY(mw->async_process == nullptr);
   // An erase does, so the view goes back to the placeholder.
@@ -679,7 +679,7 @@ void MainWindowTest::firmwareUpdateWhenConfirmed() {
   // Regression: nothing ever answered minipro's y/n prompt, so Update Firmware never ran.
   auto mw = makeWindow();
   QStringList asked;
-  mw->confirm_firmware_update = [&asked](const QString &text) {
+  mw->confirmations.firmware_update = [&asked](const QString &text) {
     asked << text;
     return true;
   };
@@ -696,7 +696,7 @@ void MainWindowTest::firmwareUpdateWhenConfirmed() {
 void MainWindowTest::firmwareUpdateWhenDeclined() {
   auto mw = makeWindow();
   int asked = 0;
-  mw->confirm_firmware_update = [&asked](const QString &) {
+  mw->confirmations.firmware_update = [&asked](const QString &) {
     asked++;
     return false;
   };
@@ -727,14 +727,14 @@ void MainWindowTest::closingWindowAtFirmwarePromptAborts() {
 void MainWindowTest::failedDeviceInfoClearsPreviousDevice() {
   // Regression: when -d failed, the previous device's details stayed next to the new name.
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
-  QCOMPARE(mw->device_memory->text(), QString("32768 Bytes"));
+  mw->targets.device->setCurrentText("AT28C256");
+  QCOMPARE(mw->device_info.memory->text(), QString("32768 Bytes"));
 
   qputenv("FAKE_MINIPRO_INFO_FAIL", "1");
-  mw->combobox_device->setCurrentText("W27C512");
+  mw->targets.device->setCurrentText("W27C512");
   QCOMPARE(mw->device, QString("W27C512"));
-  for (const QLineEdit *field : {mw->device_name, mw->device_memory, mw->device_package,
-                           mw->device_protocol, mw->device_readbuffer, mw->device_writebuffer}) {
+  for (const QLineEdit *field : {mw->device_info.name, mw->device_info.memory, mw->device_info.package,
+                           mw->device_info.protocol, mw->device_info.read_buffer, mw->device_info.write_buffer}) {
     QCOMPARE(field->text(), QString());
   }
   QVERIFY(mw->status_view->toPlainText().contains("[Error]: no device information for W27C512"));
@@ -746,10 +746,10 @@ void MainWindowTest::windowsLineEndingsAreStripped() {
   auto mw = makeWindow();
   const QStringList expected{"27C256", "AT28C256", "W27C512"};
   QCOMPARE(mw->devices_list, expected);
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QVERIFY(loggedCalls().contains("-d AT28C256"));
-  QCOMPARE(mw->device_name->text(), QString("AT28C256"));
-  QCOMPARE(mw->device_writebuffer->text(), QString("128 Bytes"));
+  QCOMPARE(mw->device_info.name->text(), QString("AT28C256"));
+  QCOMPARE(mw->device_info.write_buffer->text(), QString("128 Bytes"));
 }
 
 void MainWindowTest::readsGoToPrivateFolderNotWorkingDirectory() {
@@ -827,19 +827,19 @@ void MainWindowTest::oddDeviceInfoOutput() {
   QFETCH(QString, memory);
   auto mw = makeWindow();
   qputenv("FAKE_MINIPRO_INFO_TEXT", output.toLocal8Bit());
-  mw->combobox_device->setCurrentText("AT28C256");
-  QCOMPARE(mw->device_name->text(), name);
+  mw->targets.device->setCurrentText("AT28C256");
+  QCOMPARE(mw->device_info.name->text(), name);
   // QLineEdit keeps at most maxLength() (32767) characters.
-  QCOMPARE(mw->device_memory->text(), memory.left(mw->device_memory->maxLength()));
+  QCOMPARE(mw->device_info.memory->text(), memory.left(mw->device_info.memory->maxLength()));
   QCOMPARE(mw->status_view->toPlainText().contains("[Error]: no device information for AT28C256"),
            name.isEmpty());
 }
 
 void MainWindowTest::writeAsksAndCanBeCancelled() {
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QStringList asked;
-  mw->confirm_device_change = [&asked](const QString &title, const QString &text) {
+  mw->confirmations.device_change = [&asked](const QString &title, const QString &text) {
     asked << title << text;
     return false;
   };
@@ -850,18 +850,18 @@ void MainWindowTest::writeAsksAndCanBeCancelled() {
   QVERIFY(mw->async_process == nullptr);
   QVERIFY(loggedCalls().filter(" -w ").isEmpty());
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: write to AT28C256"));
-  QVERIFY(mw->button_write->isEnabled());
+  QVERIFY(mw->buttons.write->isEnabled());
 }
 
 void MainWindowTest::eraseAsksAndCanBeCancelled() {
   auto mw = makeWindow();
-  mw->combobox_device->setCurrentText("AT28C256");
+  mw->targets.device->setCurrentText("AT28C256");
   QString title;
-  mw->confirm_device_change = [&title](const QString &t, const QString &) {
+  mw->confirmations.device_change = [&title](const QString &t, const QString &) {
     title = t;
     return false;
   };
-  mw->erase_device->setChecked(true);
+  mw->actions.erase->setChecked(true);
   mw->run_command();
   QCOMPARE(title, QString("Erase AT28C256?"));
   QVERIFY(mw->async_process == nullptr);
@@ -873,11 +873,11 @@ void MainWindowTest::checksDoNotAsk() {
   // Blank, pin and hardware checks don't change the chip.
   auto mw = makeWindow();
   int asked = 0;
-  mw->confirm_device_change = [&asked](const QString &, const QString &) {
+  mw->confirmations.device_change = [&asked](const QString &, const QString &) {
     asked++;
     return false;
   };
-  mw->blank_check->setChecked(true);
+  mw->actions.blank_check->setChecked(true);
   mw->run_command();
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(asked, 0);
