@@ -1,0 +1,67 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+    paths:
+      - src/**
+      - CMakeLists.txt
+      - minipro-gui.qrc
+      - res/**
+      - .github/workflows/windows.yaml
+  pull_request:
+    branches:
+      - 'master'
+    paths:
+      - src/**
+      - CMakeLists.txt
+      - minipro-gui.qrc
+      - res/**
+      - .github/workflows/windows.yaml
+  schedule:
+    - cron:  '0 0 1 * *'
+
+# Read-only token: this job only checks out, builds and uploads the build.
+permissions:
+  contents: read
+
+env:
+  BUILD_TYPE: MinSizeRel
+  # Newest Qt that aqtinstall 3.3.0 can download for MSVC (6.11 and 6.12 fail on Qt's server).
+  QT_VERSION: 6.10.3
+
+jobs:
+  Windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false  # later steps don't use git
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          aqtversion: '==3.3.0'
+          cache: true
+      - name: Build Windows
+        shell: pwsh
+        run: |
+          # Default generator: the newest Visual Studio on the runner.
+          cmake -A x64 -S . -B build
+          cmake --build build --config $env:BUILD_TYPE --target minipro-gui
+      - name: Package with windeployqt
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item "build/$env:BUILD_TYPE/minipro-gui.exe" dist/
+          # No Qt Network (nothing imports it; the app makes no network requests) and no
+          # opengl32sw.dll software OpenGL fallback (a Qt Widgets app draws without OpenGL).
+          windeployqt --release --no-translations --no-network --no-opengl-sw dist/minipro-gui.exe
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: minipro-gui-windows
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
