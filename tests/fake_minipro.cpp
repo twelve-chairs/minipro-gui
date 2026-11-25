@@ -27,6 +27,7 @@
 //   FAKE_MINIPRO_INFO_FILE    if set, -d prints this file's contents to stderr instead (a file,
 //                             because Windows limits an environment variable to 32,767 characters)
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -34,26 +35,34 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
-#include <windows.h>
+#include <Windows.h>
 #endif
 
 namespace {
 
-bool isSet(const char *name) {
-  const char *value = std::getenv(name);
-  return value != nullptr && *value != '\0';
-}
-
+// The variable's value; empty if it isn't set.
 std::string env(const char *name) {
+#ifdef _WIN32
+  char *value = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) return {};
+  std::string result(value);
+  free(value);
+  return result;
+#else
   const char *value = std::getenv(name);
   return value == nullptr ? std::string() : std::string(value);
+#endif
 }
+
+bool isSet(const char *name) { return !env(name).empty(); }
 
 void sleepSeconds(const std::string &seconds) {
   if (seconds.empty()) return;
@@ -66,26 +75,31 @@ void appendLine(const std::string &path, const std::string &line) {
 }
 
 // Expands escapes the way the shell fake's `printf %b` did.
-std::string unescape(const std::string &text) {
+std::string unescape(std::string_view text) {
+  constexpr char escape = 27;
   std::string out;
-  for (size_t i = 0; i < text.size(); i++) {
+  size_t i = 0;
+  while (i < text.size()) {
     if (text[i] != '\\' || i + 1 == text.size()) {
       out += text[i];
+      i++;
       continue;
     }
-    const char c = text[++i];
+    const char c = text[i + 1];
+    i += 2;  // past the backslash and c
     switch (c) {
       case 'n': out += '\n'; break;
       case 't': out += '\t'; break;
       case 'r': out += '\r'; break;
-      case 'e': out += '\x1b'; break;
+      case 'e': out += escape; break;
       case '\\': out += '\\'; break;
       case '0': {
+        // \0NNN: up to three octal digits.
+        const size_t end = std::min(text.size(), i + 3);
         int value = 0;
-        for (int digits = 0; digits < 3 && i + 1 < text.size() && text[i + 1] >= '0' &&
-                             text[i + 1] <= '7';
-             digits++) {
-          value = value * 8 + (text[++i] - '0');
+        while (i < end && text[i] >= '0' && text[i] <= '7') {
+          value = value * 8 + (text[i] - '0');
+          i++;
         }
         out += static_cast<char>(value);
         break;
@@ -106,10 +120,10 @@ std::string readLine() {
   return line;
 }
 
-std::string decodeHex(const std::string &hex) {
+std::string decodeHex(std::string_view hex) {
   std::string bytes;
   for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-    bytes += static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16));
+    bytes += static_cast<char>(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16));
   }
   return bytes;
 }
@@ -178,8 +192,7 @@ int firmwareUpdate(const std::string &file) {
               << file << " contains firmware version 03.2.86 (newer)\n"
               << "\n\nWhich firmware version do you want to reflash? \n1) Device default (CS)\n"
                  "2) A\n3) Exit\n";
-    const std::string choice = readLine();
-    if (choice == "1") {
+    if (const std::string choice = readLine(); choice == "1") {
       std::cerr << "Reflashing TL866CS firmware... OK\nFirmware update completed.\n";
     } else if (choice == "2") {
       std::cerr << "Reflashing TL866A firmware... OK\nFirmware update completed.\n";
@@ -201,6 +214,59 @@ int firmwareUpdate(const std::string &file) {
   return -1;
 }
 
+// --version and --presence_check.
+int query(const std::string &first) {
+  if (first == "--version") {
+    if (isSet("FAKE_MINIPRO_VERSION_TEXT")) {
+      std::cerr << unescape(env("FAKE_MINIPRO_VERSION_TEXT"));
+    } else {
+      std::cerr << "minipro version 0.7.4     A free and open TL866 series programmer\n"
+                   "Commit date:\t2024-01-01 00:00:00 +0000\n";
+    }
+    return 0;
+  }
+  // Same wording as minipro's print_connected_programmer_and_exit()
+  if (isSet("FAKE_MINIPRO_PRESENCE")) {
+    std::cerr << unescape(env("FAKE_MINIPRO_PRESENCE")) << "\n";
+  } else if (isSet("FAKE_MINIPRO_NO_PROGRAMMER")) {
+    std::cerr << "[No programmer found]\n";
+  } else {
+    std::cerr << "tl866ii: TL866II+\n";
+  }
+  return 0;
+}
+
+void readTo(const std::string &target) {
+  if (isSet("FAKE_MINIPRO_READ_EMPTY")) {
+    std::ofstream(target, std::ios::binary | std::ios::trunc);
+  } else if (isSet("FAKE_MINIPRO_READ_HEX")) {
+    std::ofstream(target, std::ios::binary | std::ios::trunc) << decodeHex(env("FAKE_MINIPRO_READ_HEX"));
+  }
+  std::cerr << "Reading Code...  0.10Sec  OK\n";
+}
+
+// Device operations: minipro -p <device> [-r|-w|-F <file>] [flags...]
+int deviceOperation(const std::vector<std::string> &args, const std::string &joined) {
+  size_t i = 0;
+  while (i < args.size()) {
+    const bool hasValue = i + 1 < args.size();
+    if (args[i] == "-r" && hasValue) {
+      readTo(args[i + 1]);
+      i++;  // skip the file
+    } else if (args[i] == "-F") {
+      const int code = firmwareUpdate(hasValue ? args[i + 1] : std::string());
+      if (code >= 0) return code;
+      i++;  // skip the file
+    }
+    i++;
+  }
+  sleepSeconds(env("FAKE_MINIPRO_DELAY"));
+  appendLine(env("FAKE_MINIPRO_DONE_LOG"), joined);
+  if (isSet("FAKE_MINIPRO_CRASH")) crash();
+  if (const std::string code = env("FAKE_MINIPRO_READ_EXIT"); !code.empty()) return std::stoi(code);
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char *argv[]) {
@@ -219,48 +285,7 @@ int main(int argc, char *argv[]) {
   appendLine(env("FAKE_MINIPRO_LOG"), joined);
 
   const std::string first = args.empty() ? std::string() : args[0];
-  if (first == "--version") {
-    if (isSet("FAKE_MINIPRO_VERSION_TEXT")) {
-      std::cerr << unescape(env("FAKE_MINIPRO_VERSION_TEXT"));
-    } else {
-      std::cerr << "minipro version 0.7.4     A free and open TL866 series programmer\n"
-                   "Commit date:\t2024-01-01 00:00:00 +0000\n";
-    }
-    return 0;
-  }
-  if (first == "--presence_check") {
-    // Same wording as minipro's print_connected_programmer_and_exit()
-    if (isSet("FAKE_MINIPRO_PRESENCE")) {
-      std::cerr << unescape(env("FAKE_MINIPRO_PRESENCE")) << "\n";
-    } else if (isSet("FAKE_MINIPRO_NO_PROGRAMMER")) {
-      std::cerr << "[No programmer found]\n";
-    } else {
-      std::cerr << "tl866ii: TL866II+\n";
-    }
-    return 0;
-  }
+  if (first == "--version" || first == "--presence_check") return query(first);
   if (first == "-l" || first == "-d") return listOrInfo(args);
-
-  // Device operations: minipro -p <device> [-r|-w|-F <file>] [flags...]
-  for (size_t i = 0; i < args.size(); i++) {
-    if (args[i] == "-r" && i + 1 < args.size()) {
-      const std::string &target = args[++i];
-      if (isSet("FAKE_MINIPRO_READ_EMPTY")) {
-        std::ofstream(target, std::ios::binary | std::ios::trunc);
-      } else if (isSet("FAKE_MINIPRO_READ_HEX")) {
-        std::ofstream(target, std::ios::binary | std::ios::trunc)
-            << decodeHex(env("FAKE_MINIPRO_READ_HEX"));
-      }
-      std::cerr << "Reading Code...  0.10Sec  OK\n";
-    } else if (args[i] == "-F") {
-      const int code = firmwareUpdate(i + 1 < args.size() ? args[i + 1] : std::string());
-      if (code >= 0) return code;
-      i++;
-    }
-  }
-  sleepSeconds(env("FAKE_MINIPRO_DELAY"));
-  appendLine(env("FAKE_MINIPRO_DONE_LOG"), joined);
-  if (isSet("FAKE_MINIPRO_CRASH")) crash();
-  const std::string code = env("FAKE_MINIPRO_READ_EXIT");
-  return code.empty() ? 0 : std::stoi(code);
+  return deviceOperation(args, joined);
 }

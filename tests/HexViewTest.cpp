@@ -4,8 +4,8 @@
 #include <QSignalSpy>
 #include <QElapsedTimer>
 #ifdef Q_OS_WIN
-#include <windows.h>
-#include <psapi.h>
+#include <Windows.h>
+#include <Psapi.h>
 #else
 #include <sys/resource.h>
 #endif

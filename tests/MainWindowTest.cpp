@@ -879,8 +879,9 @@ void MainWindowTest::oddDeviceInfoOutput_data() {
   QTest::newRow("unknown lines and order")
       << "Something new: 1\nMemory: 8192 Bytes\nName: X28C64\nVPP: 12V\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("no fields") << "Unexpected output\n" << "" << "";
+  const QString esc(QChar(0x1b));
   QTest::newRow("escape sequences")
-      << "\033[1mWarning\033[0m\nName: X28C64\033[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
+      << esc + "[1mWarning" + esc + "[0m\nName: X28C64" + esc + "[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("very long line")
       << "Name: X28C64\nMemory: " + QString(100000, 'A') + "\n" << "X28C64" << QString(100000, 'A');
 }
