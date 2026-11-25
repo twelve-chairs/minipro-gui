@@ -20,6 +20,8 @@ function(add_qt_test name test_source)
   qt_add_executable(${name} ${test_source} ${ARGN})
   target_include_directories(${name} PRIVATE ${SRC_DIR})
   target_link_libraries(${name} PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Widgets)
+  # A console program on Windows: qt_add_executable makes a GUI one, whose output is lost.
+  set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE OFF)
   add_test(NAME ${name} COMMAND ${name})
   # Run headless so tests work on CI and don't pop up windows locally.
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

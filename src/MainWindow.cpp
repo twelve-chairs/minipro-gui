@@ -203,6 +203,9 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   status_view->ensureCursorVisible();
   update_controls();  // async_process is set: disables everything that starts minipro
   async_process->start("minipro", process_arguments);
+  // On Windows, start() reports FailedToStart before it returns, and async_process_error() has
+  // then already ended the operation and cleared async_process.
+  if (async_process == nullptr) return;
   // minipro asks some questions on stdin. A firmware update's y/n prompt is answered from the
   // GUI (answer_firmware_prompt_if_asked). Nothing answers the others, such as which database to
   // use without a programmer, so give them end-of-input: they treat it as "no" and exit.
