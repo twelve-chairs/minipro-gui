@@ -77,7 +77,7 @@ Run, in order:
 
 Skip all three only for a change confined to Markdown or `.claude/`, and say so.
 
-Do not commit if either fails.
+Do not commit if any of them fails.
 
 **If a test fails, fix the code, not the test.** Read the failure, find the
 cause, fix it, and run again until it passes. Change a test only when this
