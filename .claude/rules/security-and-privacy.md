@@ -92,4 +92,4 @@ change for the user to decide, not something to slip into a code review:
 - GitHub Actions run with least-privilege `permissions:` (the workflows set
   `contents: read`), never use `pull_request_target` to check out PR code, and
   never echo secrets. Every action is pinned to a commit SHA, with its version
-  in a comment (`actions/checkout@<sha> # v4.4.0`).
+  in a comment (`actions/checkout@<sha> # v7.0.1`).
