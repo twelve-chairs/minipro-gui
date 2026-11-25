@@ -49,6 +49,14 @@ if (APPLE)
             XCODE_ATTRIBUTE_CODE_SIGN_INJECT_BASE_ENTITLEMENTS "NO"
     )
 
+elseif (WIN32)
+    # A GUI app (no console window). The .exe's own icon, shown by Explorer and the taskbar,
+    # comes from a Windows resource; the window icon comes from the .qrc like elsewhere. The .rc
+    # is generated so it can name the .ico by absolute path.
+    set(app_icon_windows "${CMAKE_CURRENT_BINARY_DIR}/AppIcon.rc")
+    file(WRITE "${app_icon_windows}" "IDI_ICON1 ICON \"${CMAKE_CURRENT_SOURCE_DIR}/res/AppIcon.ico\"\n")
+    add_executable(${PROJECT_NAME} WIN32 ${CPP_FILES} ${H_FILES} ${INCLUDE} ${RESOURCE_FILES} ${app_icon_windows})
+
 else ()
     add_executable(${PROJECT_NAME} ${CPP_FILES} ${H_FILES} ${INCLUDE} ${RESOURCE_FILES})
 endif()
