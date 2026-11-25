@@ -1,4 +1,10 @@
 #include "MainWindow.h"
+#include <QMessageBox>
+
+namespace {
+// minipro's confirmation prompt for -F (tl866iiplus.c, t48.c, t56.c).
+const QString firmware_prompt = "Do you want to continue with firmware update?";
+}  // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   initializer();
@@ -88,11 +94,20 @@ MainWindow::~MainWindow() {
     std::cerr << "minipro-gui: waiting for the running minipro operation to finish" << std::endl;
     // The widgets may already be gone, so don't let finished() reach the slots that update them.
     async_process->disconnect(this);
+    // If a firmware update is still waiting at its y/n prompt, end-of-input answers "no".
+    async_process->closeWriteChannel();
     async_process->waitForFinished(-1);
   }
 }
 
 void MainWindow::initializer() {
+  confirm_firmware_update = [this](const QString &minipro_output) {
+    return QMessageBox::question(window, tr("Update programmer firmware?"),
+                                 tr("minipro is ready to update the programmer's firmware:\n\n%1\n\n"
+                                    "Don't unplug the programmer until the update has finished.")
+                                     .arg(minipro_output.trimmed()),
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+  };
   minipro_found = false;
   programmer_found = false;
 
@@ -176,11 +191,29 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
   set_device_operation_running(true);
+  firmware_update_output.clear();
+  firmware_prompt_answered = false;
   async_process->start("minipro", process_arguments);
-  // minipro asks some questions on stdin (firmware update confirmation, which database to use
-  // without a programmer). Nothing will ever answer them here, so give it end-of-input: its
-  // prompts treat that as "no" and exit instead of waiting forever.
-  async_process->closeWriteChannel();
+  // minipro asks some questions on stdin. A firmware update's y/n prompt is answered from the
+  // GUI (answer_firmware_prompt_if_asked). Nothing answers the others, such as which database to
+  // use without a programmer, so give them end-of-input: they treat it as "no" and exit.
+  if (operation != AsyncOperation::FirmwareUpdate) {
+    async_process->closeWriteChannel();
+  }
+}
+
+void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
+  if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt_answered) return;
+  firmware_update_output += new_output;
+  if (!firmware_update_output.contains(firmware_prompt)) return;
+  // Set before asking: the dialog runs an event loop, and more output may arrive meanwhile.
+  firmware_prompt_answered = true;
+  QProcess *process = async_process;
+  const bool go_ahead = confirm_firmware_update(firmware_update_output);
+  if (process != async_process) return;  // the operation ended while the dialog was open
+  status_view->appendPlainText(go_ahead ? "[Input]: y" : "[Input]: n");
+  process->write(go_ahead ? "y\n" : "n\n");
+  process->closeWriteChannel();
 }
 
 // Only one minipro may talk to the programmer at a time. The UI disables every control that
@@ -213,9 +246,11 @@ void MainWindow::end_async_process() {
   set_device_operation_running(false);
 }
 
-void MainWindow::async_process_err_output() const {
-  status_view->appendPlainText(async_process->readAllStandardError().trimmed().replace("\u001B[K", ""));
+void MainWindow::async_process_err_output() {
+  const QString output = QString::fromLocal8Bit(async_process->readAllStandardError());
+  status_view->appendPlainText(QString(output).trimmed().replace("\u001B[K", ""));
   status_view->ensureCursorVisible();
+  answer_firmware_prompt_if_asked(output);
 }
 
 void MainWindow::async_process_std_output() const {

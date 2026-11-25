@@ -19,6 +19,7 @@
 #include <QCheckBox>
 #include <QHeaderView>
 #include <iostream>
+#include <functional>
 #include <array>
 #include "HexView.h"
 
@@ -38,7 +39,7 @@ class MainWindow : public QMainWindow {
   void check_for_programmer();
   void get_devices();
   void select_device(const QString & = "");
-  void async_process_err_output() const;
+  void async_process_err_output();
   void async_process_std_output() const;
   void async_process_finished(int, QProcess::ExitStatus);
   void async_process_error(QProcess::ProcessError);
@@ -124,6 +125,13 @@ class MainWindow : public QMainWindow {
   AsyncOperation async_operation = AsyncOperation::Read;
 
   void run_async_process(const QStringList &, AsyncOperation, const QString & = "stderr");
+
+  // Asks the user whether to go ahead with a firmware update. It receives minipro's output so far,
+  // which shows the installed and new firmware versions. Replaceable so tests never open a dialog.
+  std::function<bool(const QString &)> confirm_firmware_update;
+  QString firmware_update_output;
+  bool firmware_prompt_answered = false;
+  void answer_firmware_prompt_if_asked(const QString &new_output);
   [[nodiscard]] bool refuse_if_operation_running() const;
   void set_device_operation_running(bool);
   void end_async_process();

@@ -72,6 +72,9 @@ class MainWindowTest : public QObject {
   void finishedProcessesAreDeleted();
   void closingWindowLetsRunningWriteFinish();
   void firmwarePromptDoesNotHang();
+  void firmwareUpdateWhenConfirmed();
+  void firmwareUpdateWhenDeclined();
+  void closingWindowAtFirmwarePromptAborts();
 
  private:
   using WindowPtr = std::unique_ptr<MainWindow, MainWindowDeleter>;
@@ -128,7 +131,10 @@ void MainWindowTest::cleanup() {
 }
 
 MainWindowTest::WindowPtr MainWindowTest::makeWindow() {
-  return WindowPtr(new MainWindow());
+  WindowPtr mw(new MainWindow());
+  // Never open a real dialog in tests; decline by default (the safe answer).
+  mw->confirm_firmware_update = [](const QString &) { return false; };
+  return mw;
 }
 
 QStringList MainWindowTest::loggedCalls() const {
@@ -657,6 +663,55 @@ void MainWindowTest::runCommandDoesNotBlockAndKeepsOrResetsView() {
   QTRY_VERIFY(mw->async_process == nullptr);
   // An erase does, so the view goes back to the placeholder.
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+}
+
+void MainWindowTest::firmwareUpdateWhenConfirmed() {
+  // Regression: nothing ever answered minipro's y/n prompt, so Update Firmware never ran.
+  auto mw = makeWindow();
+  QStringList asked;
+  mw->confirm_firmware_update = [&asked](const QString &text) {
+    asked << text;
+    return true;
+  };
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(asked.size(), 1);
+  // The dialog shows the versions minipro printed before its prompt.
+  QVERIFY(asked.first().contains("/images/update.dat contains firmware version 04.2.132 (newer)"));
+  QVERIFY(mw->status_view->toPlainText().contains("[Input]: y"));
+  QVERIFY(mw->status_view->toPlainText().contains("Firmware update completed."));
+  QVERIFY(!mw->status_view->toPlainText().contains("[Error]"));
+}
+
+void MainWindowTest::firmwareUpdateWhenDeclined() {
+  auto mw = makeWindow();
+  int asked = 0;
+  mw->confirm_firmware_update = [&asked](const QString &) {
+    asked++;
+    return false;
+  };
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(asked, 1);
+  QVERIFY(mw->status_view->toPlainText().contains("[Input]: n"));
+  QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
+  QVERIFY(!mw->status_view->toPlainText().contains("Firmware update completed."));
+}
+
+void MainWindowTest::closingWindowAtFirmwarePromptAborts() {
+  // The window waits for a running operation when it closes. A firmware update waiting at its
+  // prompt must not make that wait forever, and must not go ahead.
+  const QString doneLog = QDir(tempDir.path()).filePath("done.log");
+  QFile::remove(doneLog);
+  qputenv("FAKE_MINIPRO_DONE_LOG", doneLog.toLocal8Bit());
+  auto mw = makeWindow();
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(loggedCalls().contains("-F /images/update.dat"));
+  QElapsedTimer timer;
+  timer.start();
+  mw.reset();
+  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(!QFile::exists(doneLog));  // the fake exits at the prompt, before the end of the update
 }
 
 QTEST_MAIN(MainWindowTest)

@@ -86,13 +86,18 @@ while [ $# -gt 0 ]; do
       echo "Reading Code...  0.10Sec  OK" >&2
       ;;
     -F)
-      # Like minipro, ask for confirmation on stdin; anything but y aborts.
-      printf 'Do you want to continue with firmware update? y/n:' >&2
+      # Like minipro, show the versions and ask for confirmation on stdin; anything but y aborts.
+      echo "Found TL866II+ 04.2.126 (0x27e)" >&2
+      echo "$2 contains firmware version 04.2.132 (newer)" >&2
+      printf '\n\nDo you want to continue with firmware update? y/n:' >&2
       read -r answer || answer=""
       if [ "$answer" != "y" ]; then
         echo "Firmware update aborted." >&2
         exit 1
       fi
+      echo "Switching to bootloader... OK" >&2
+      echo "Writing firmware... OK" >&2
+      echo "Firmware update completed." >&2
       ;;
   esac
   shift
