@@ -2,6 +2,8 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QElapsedTimer>
+#include <QSignalSpy>
+#include <csignal>
 #include <memory>
 
 // MainWindow drives the `minipro` CLI found on PATH. These tests put tests/fake_minipro.sh on PATH
@@ -82,6 +84,8 @@ class MainWindowTest : public QObject {
   // Cancelling a running operation
   void cancelIsOnlyEnabledWhileRunning();
   void cancelStopsARead();
+  void cancelStopsARunningRead();
+  void cancelKillsMiniproThatIgnoresTerm();
   void cancelAnswersAnUnknownPrompt();
   void cancelDuringWriteAsksBeforeStopping();
   void cancelWhenOperationEndsDuringDialogIsSafe();
@@ -137,6 +141,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_LIST_EMPTY");
   qunsetenv("FAKE_MINIPRO_TL866A");
   qunsetenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN");
+  qunsetenv("FAKE_MINIPRO_IGNORE_TERM");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
   qunsetenv("FAKE_MINIPRO_INFO_TEXT");
   MainWindow::sync_timeout_ms = 10000;
@@ -983,20 +988,59 @@ void MainWindowTest::cancelIsOnlyEnabledWhileRunning() {
 }
 
 void MainWindowTest::cancelStopsARead() {
-  // A read changes nothing on the chip, so one click stops it at once.
+  // A read changes nothing on the chip, so one click stops it at once. This click comes while
+  // the process is still starting. Regression (CI): a SIGTERM sent then could be lost before
+  // the child had become minipro, and only the kill() 3 s later stopped it.
   qputenv("FAKE_MINIPRO_DELAY", "10");
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ff").repeated(16));
   auto mw = makeWindow();
   mw->read_device();
-  QElapsedTimer timer;
-  timer.start();
+  QCOMPARE(mw->async_process->state(), QProcess::Starting);
+  QSignalSpy finished(mw->async_process, &QProcess::finished);
   mw->buttons.cancel->click();
   QTRY_VERIFY(mw->async_process == nullptr);
-  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  // Stopped with SIGKILL, which can't be lost; Qt reports the signal as the exit code. (This
+  // replaces a time limit, which the 3 s fallback kill() could meet by chance under load.)
+  QCOMPARE(finished.count(), 1);
+  QCOMPARE(finished.at(0).at(0).toInt(), SIGKILL);
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
   QVERIFY(!mw->status_view->toPlainText().contains("[Error]: minipro crashed"));
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
   QVERIFY(mw->buttons.read->isEnabled());
+}
+
+void MainWindowTest::cancelStopsARunningRead() {
+  // Once minipro is running, Cancel asks it to stop with SIGTERM before any kill().
+  qputenv("FAKE_MINIPRO_DELAY", "10");
+  auto mw = makeWindow();
+  mw->read_device();
+  QTRY_COMPARE(mw->async_process->state(), QProcess::Running);
+  QSignalSpy finished(mw->async_process, &QProcess::finished);
+  mw->buttons.cancel->click();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(finished.count(), 1);
+  QCOMPARE(finished.at(0).at(0).toInt(), SIGTERM);  // asked politely, no kill() needed
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
+}
+
+void MainWindowTest::cancelKillsMiniproThatIgnoresTerm() {
+  // If minipro ignores SIGTERM, Cancel still stops it: kill() follows after 3 s.
+  qputenv("FAKE_MINIPRO_DELAY", "30");
+  qputenv("FAKE_MINIPRO_IGNORE_TERM", "1");
+  auto mw = makeWindow();
+  mw->read_device();
+  QTRY_COMPARE(mw->async_process->state(), QProcess::Running);
+  QTest::qWait(200);  // let the fake reach its trap
+  QSignalSpy finished(mw->async_process, &QProcess::finished);
+  mw->buttons.cancel->click();
+  QTest::qWait(1000);
+  QVERIFY(mw->async_process != nullptr);  // SIGTERM was ignored
+  QTRY_VERIFY_WITH_TIMEOUT(mw->async_process == nullptr, 5000);
+  // SIGKILL proves the kill() fallback stopped it. (No lower bound on the time: Qt's coarse
+  // timers may fire up to 5% early.)
+  QCOMPARE(finished.count(), 1);
+  QCOMPARE(finished.at(0).at(0).toInt(), SIGKILL);
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
 }
 
 void MainWindowTest::cancelAnswersAnUnknownPrompt() {

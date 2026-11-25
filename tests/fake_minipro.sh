@@ -20,10 +20,14 @@
 #   FAKE_MINIPRO_LIST_EMPTY   if set, -l prints no devices
 #   FAKE_MINIPRO_TL866A       if set, -F asks like minipro does for a TL866A/CS (numbered menu)
 #   FAKE_MINIPRO_FW_PROMPT_UNKNOWN  if set, -F asks a question the app doesn't recognise
+#   FAKE_MINIPRO_IGNORE_TERM  if set, ignore SIGTERM (only SIGKILL stops it)
 #   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (printf %b escapes)
 #   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (printf %b escapes)
 
 ARGS="$*"
+if [ -n "$FAKE_MINIPRO_IGNORE_TERM" ]; then
+  trap '' TERM
+fi
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
   echo "$*" >> "$FAKE_MINIPRO_LOG"
 fi
