@@ -725,3 +725,12 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Unit test build output
+tests/build/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Chip images read from devices (may be proprietary firmware)
+*.bin
