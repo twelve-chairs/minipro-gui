@@ -59,6 +59,8 @@ case "$1" in
       fi
     fi
     ;;
+  *)
+    ;;
 esac
 
 case "$1" in
@@ -91,6 +93,8 @@ case "$1" in
     } | if [ -n "$FAKE_MINIPRO_CRLF" ]; then sed 's/$/\r/'; else cat; fi >&2
     exit 0
     ;;
+  *)
+    ;;
 esac
 
 # Device operations: minipro -p <device> [-r|-w|-F <file>] [flags...]
@@ -118,6 +122,8 @@ while [ $# -gt 0 ]; do
       echo "Switching to bootloader... OK" >&2
       echo "Writing firmware... OK" >&2
       echo "Firmware update completed." >&2
+      ;;
+    *)
       ;;
   esac
   shift

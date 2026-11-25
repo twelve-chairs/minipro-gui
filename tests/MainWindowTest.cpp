@@ -8,14 +8,6 @@
 // (as "minipro") so they are deterministic and need neither the real CLI nor a programmer.
 // FAKE_MINIPRO_SOURCE is defined by tests/CMakeLists.txt.
 
-// MainWindow's widgets live in a separate top-level QWidget (`window`) that it never deletes.
-struct MainWindowDeleter {
-  void operator()(MainWindow *mw) const {
-    delete mw->window;
-    delete mw;
-  }
-};
-
 class MainWindowTest : public QObject {
  Q_OBJECT
 
@@ -89,7 +81,7 @@ class MainWindowTest : public QObject {
   void checksDoNotAsk();
 
  private:
-  using WindowPtr = std::unique_ptr<MainWindow, MainWindowDeleter>;
+  using WindowPtr = std::unique_ptr<MainWindow>;
   WindowPtr makeWindow();
   QStringList loggedCalls() const;
   static void readFfRow(MainWindow &mw);
@@ -146,7 +138,7 @@ void MainWindowTest::cleanup() {
 }
 
 MainWindowTest::WindowPtr MainWindowTest::makeWindow() {
-  WindowPtr mw(new MainWindow());
+  auto mw = std::make_unique<MainWindow>();
   // Never open a real dialog in tests; decline by default (the safe answer).
   mw->confirm_firmware_update = [](const QString &) { return false; };
   // Write and erase tests exercise the operation itself; declining is tested separately.
@@ -354,7 +346,7 @@ void MainWindowTest::runProcessEchoesInputAndStripsEscapes() {
   QVERIFY(output.contains("minipro version 0.7.4"));
   QVERIFY(target.toPlainText().contains("[Input]: minipro --version"));
   QVERIFY(target.toPlainText().contains("[Output]: minipro version"));
-  QVERIFY(!target.toPlainText().contains("\u001B[K"));
+  QVERIFY(!target.toPlainText().contains(QString(QChar(0x1B)) + "[K"));
 }
 
 void MainWindowTest::readDeviceFillsHexView() {
@@ -367,7 +359,7 @@ void MainWindowTest::readDeviceFillsHexView() {
   mw->combobox_device->setCurrentText("AT28C256");
   mw->read_device();
 
-  HexView &model = mw->hexViewModel;
+  const HexView &model = mw->hexViewModel;
   QTRY_COMPARE(model.rowCount(), 2);
   QCOMPARE(model.index(0, 0).data().toString(), QString("48"));
   QCOMPARE(model.index(0, 16).data().toString(), QString("Hello, minipro!!"));
@@ -472,7 +464,7 @@ void MainWindowTest::largeImageLoadsQuickly() {
   auto mw = makeWindow();
   QFile image(mw->read_file_path());
   QVERIFY(image.open(QFile::WriteOnly));
-  image.write(QByteArray(16 * 1024 * 1024, '\x5A'));
+  image.write(QByteArray(16 * 1024 * 1024, 'Z'));
   image.close();
 
   QElapsedTimer timer;
@@ -506,7 +498,7 @@ void MainWindowTest::controlsDisabledWhileOperationRuns() {
   qputenv("FAKE_MINIPRO_DELAY", "1");
   auto mw = makeWindow();
   mw->read_device();
-  for (QWidget *control : std::initializer_list<QWidget *>{
+  for (const QWidget *control : std::initializer_list<QWidget *>{
            mw->button_read, mw->button_write, mw->button_update, mw->button_run_command,
            mw->combobox_device, mw->combobox_programmer}) {
     QVERIFY2(!control->isEnabled(), qPrintable(control->metaObject()->className()));
@@ -741,7 +733,7 @@ void MainWindowTest::failedDeviceInfoClearsPreviousDevice() {
   qputenv("FAKE_MINIPRO_INFO_FAIL", "1");
   mw->combobox_device->setCurrentText("W27C512");
   QCOMPARE(mw->device, QString("W27C512"));
-  for (QLineEdit *field : {mw->device_name, mw->device_memory, mw->device_package,
+  for (const QLineEdit *field : {mw->device_name, mw->device_memory, mw->device_package,
                            mw->device_protocol, mw->device_readbuffer, mw->device_writebuffer}) {
     QCOMPARE(field->text(), QString());
   }

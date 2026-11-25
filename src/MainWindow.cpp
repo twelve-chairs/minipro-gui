@@ -4,6 +4,8 @@
 namespace {
 // minipro's confirmation prompt for -F (tl866iiplus.c, t48.c, t56.c).
 const QString firmware_prompt = "Do you want to continue with firmware update?";
+// The "erase to end of line" terminal code minipro prints with its progress output.
+const QString erase_to_end_of_line = QString(QChar(0x1B)) + "[K";
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -102,25 +104,25 @@ MainWindow::~MainWindow() {
 
 void MainWindow::initializer() {
   confirm_firmware_update = [this](const QString &minipro_output) {
-    return QMessageBox::question(window, tr("Update programmer firmware?"),
+    return QMessageBox::question(window.get(), tr("Update programmer firmware?"),
                                  tr("minipro is ready to update the programmer's firmware:\n\n%1\n\n"
                                     "Don't unplug the programmer until the update has finished.")
                                      .arg(minipro_output.trimmed()),
                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
   };
   confirm_device_change = [this](const QString &title, const QString &text) {
-    return QMessageBox::warning(window, title, text, QMessageBox::Yes | QMessageBox::No,
+    return QMessageBox::warning(window.get(), title, text, QMessageBox::Yes | QMessageBox::No,
                                 QMessageBox::No) == QMessageBox::Yes;
   };
   minipro_found = false;
   programmer_found = false;
 
-  window = new QWidget;
+  window = std::make_unique<QWidget>();
   window->setWindowTitle("minipro CLI not found!");
   window->resize(1000, 600);
   window->setMinimumSize(800, 480);
 
-  layout = new QGridLayout(window);
+  layout = new QGridLayout(window.get());
 
   combobox_programmer = new QComboBox();
   combobox_device = new QComboBox();
@@ -158,8 +160,8 @@ void MainWindow::initializer() {
   device_writebuffer = new QLineEdit();
   device_writebuffer->setReadOnly(true);
 
-  hexTableView = new QTableView(window);
-  status_view = new QPlainTextEdit(window);
+  hexTableView = new QTableView(window.get());
+  status_view = new QPlainTextEdit(window.get());
 
   monospace_font.setFamily("Courier New");
   monospace_font.setStyleHint(QFont::Monospace);
@@ -252,13 +254,14 @@ void MainWindow::end_async_process() {
 
 void MainWindow::async_process_err_output() {
   const QString output = QString::fromLocal8Bit(async_process->readAllStandardError());
-  status_view->appendPlainText(QString(output).trimmed().replace("\u001B[K", ""));
+  status_view->appendPlainText(QString(output).trimmed().replace(erase_to_end_of_line, ""));
   status_view->ensureCursorVisible();
   answer_firmware_prompt_if_asked(output);
 }
 
 void MainWindow::async_process_std_output() const {
-  status_view->appendPlainText(async_process->readAllStandardOutput().trimmed().replace("\u001B[K", ""));
+  status_view->appendPlainText(
+      QString::fromLocal8Bit(async_process->readAllStandardOutput()).trimmed().replace(erase_to_end_of_line, ""));
   status_view->ensureCursorVisible();
 }
 
@@ -323,11 +326,11 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
     if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
       output = match.captured(1).trimmed();
     }
-    target_plain_text_edit.appendPlainText("[Output]: " + output.replace("\u001B[K", ""));
+    target_plain_text_edit.appendPlainText("[Output]: " + output.replace(erase_to_end_of_line, ""));
   } else if (type == "stdout") {
     output = process.readAllStandardOutput();
     if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
-      output = match.captured(1).trimmed().replace("\u001B[K", "");
+      output = match.captured(1).trimmed().replace(erase_to_end_of_line, "");
     }
   }
   target_plain_text_edit.ensureCursorVisible();

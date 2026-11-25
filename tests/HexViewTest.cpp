@@ -17,6 +17,11 @@ QString sequentialHex(int count) {
   for (int i = 0; i < count; i++) bytes.append(static_cast<char>(i & 0xFF));
   return QString::fromLatin1(bytes.toHex());
 }
+QByteArray bytesOf(std::initializer_list<int> values) {
+  QByteArray bytes;
+  for (int value : values) bytes.append(static_cast<char>(value));
+  return bytes;
+}
 }  // namespace
 
 class HexViewTest : public QObject {
@@ -24,41 +29,41 @@ class HexViewTest : public QObject {
 
  private slots:
   // Placeholder table
-  void defaultTableIsPlaceholder();
-  void clearHexTableRestoresPlaceholder();
+  void defaultTableIsPlaceholder() const;
+  void clearHexTableRestoresPlaceholder() const;
 
   // Header labels
-  void horizontalHeaderLabels_data();
-  void horizontalHeaderLabels();
-  void horizontalHeaderOutOfRangeIsInvalid();
-  void verticalHeaderShowsByteOffset_data();
-  void verticalHeaderShowsByteOffset();
-  void headerNonDisplayRoleIsInvalid();
+  void horizontalHeaderLabels_data() const;
+  void horizontalHeaderLabels() const;
+  void horizontalHeaderOutOfRangeIsInvalid() const;
+  void verticalHeaderShowsByteOffset_data() const;
+  void verticalHeaderShowsByteOffset() const;
+  void headerNonDisplayRoleIsInvalid() const;
 
   // Data roles
-  void dataAlignmentAndFont();
-  void dataUnknownRoleIsInvalid();
+  void dataAlignmentAndFont() const;
+  void dataUnknownRoleIsInvalid() const;
 
   // buildHexTable
-  void buildSingleRow();
-  void buildMultipleRows();
-  void hexIsUppercased();
-  void asciiTranslation_data();
-  void asciiTranslation();
-  void buildEmitsModelReset();
-  void rebuildReplacesPreviousContent();
-  void trailingPartialRowIsKept();
-  void lessThanOneRowDoesNotCrash_data();
-  void lessThanOneRowDoesNotCrash();
-  void validParentHasNoChildren();
-  void largeImageIsCheapToLoad();
+  void buildSingleRow() const;
+  void buildMultipleRows() const;
+  void hexIsUppercased() const;
+  void asciiTranslation_data() const;
+  void asciiTranslation() const;
+  void buildEmitsModelReset() const;
+  void rebuildReplacesPreviousContent() const;
+  void trailingPartialRowIsKept() const;
+  void lessThanOneRowDoesNotCrash_data() const;
+  void lessThanOneRowDoesNotCrash() const;
+  void validParentHasNoChildren() const;
+  void largeImageIsCheapToLoad() const;
 
   // Generic model consistency checks
-  void modelTesterOnPlaceholder();
-  void modelTesterOnBuiltTable();
+  void modelTesterOnPlaceholder() const;
+  void modelTesterOnBuiltTable() const;
 };
 
-void HexViewTest::defaultTableIsPlaceholder() {
+void HexViewTest::defaultTableIsPlaceholder() const {
   HexView model;
   QCOMPARE(model.rowCount(), kPlaceholderRows);
   QCOMPARE(model.columnCount(), kColumnCount);
@@ -70,7 +75,7 @@ void HexViewTest::defaultTableIsPlaceholder() {
   }
 }
 
-void HexViewTest::clearHexTableRestoresPlaceholder() {
+void HexViewTest::clearHexTableRestoresPlaceholder() const {
   HexView model;
   model.buildHexTable(sequentialHex(64));
   QCOMPARE(model.rowCount(), 4);
@@ -80,7 +85,7 @@ void HexViewTest::clearHexTableRestoresPlaceholder() {
   QCOMPARE(model.index(0, 0).data().toString(), QString("--"));
 }
 
-void HexViewTest::horizontalHeaderLabels_data() {
+void HexViewTest::horizontalHeaderLabels_data() const {
   QTest::addColumn<int>("section");
   QTest::addColumn<QString>("label");
   const QStringList labels{"00", "01", "02", "03", "04", "05", "06", "07",
@@ -90,19 +95,19 @@ void HexViewTest::horizontalHeaderLabels_data() {
   }
 }
 
-void HexViewTest::horizontalHeaderLabels() {
+void HexViewTest::horizontalHeaderLabels() const {
   QFETCH(int, section);
   QFETCH(QString, label);
   HexView model;
   QCOMPARE(model.headerData(section, Qt::Horizontal, Qt::DisplayRole).toString(), label);
 }
 
-void HexViewTest::horizontalHeaderOutOfRangeIsInvalid() {
+void HexViewTest::horizontalHeaderOutOfRangeIsInvalid() const {
   HexView model;
   QVERIFY(!model.headerData(kColumnCount, Qt::Horizontal, Qt::DisplayRole).isValid());
 }
 
-void HexViewTest::verticalHeaderShowsByteOffset_data() {
+void HexViewTest::verticalHeaderShowsByteOffset_data() const {
   QTest::addColumn<int>("section");
   QTest::addColumn<QString>("label");
   QTest::newRow("row 0") << 0 << "000000";
@@ -113,20 +118,20 @@ void HexViewTest::verticalHeaderShowsByteOffset_data() {
   QTest::newRow("row 4096") << 4096 << "010000";
 }
 
-void HexViewTest::verticalHeaderShowsByteOffset() {
+void HexViewTest::verticalHeaderShowsByteOffset() const {
   QFETCH(int, section);
   QFETCH(QString, label);
   HexView model;
   QCOMPARE(model.headerData(section, Qt::Vertical, Qt::DisplayRole).toString(), label);
 }
 
-void HexViewTest::headerNonDisplayRoleIsInvalid() {
+void HexViewTest::headerNonDisplayRoleIsInvalid() const {
   HexView model;
   QVERIFY(!model.headerData(0, Qt::Horizontal, Qt::ToolTipRole).isValid());
   QVERIFY(!model.headerData(0, Qt::Vertical, Qt::FontRole).isValid());
 }
 
-void HexViewTest::dataAlignmentAndFont() {
+void HexViewTest::dataAlignmentAndFont() const {
   HexView model;
   const QModelIndex index = model.index(0, 0);
   QCOMPARE(index.data(Qt::TextAlignmentRole).toInt(), static_cast<int>(Qt::AlignCenter));
@@ -135,13 +140,13 @@ void HexViewTest::dataAlignmentAndFont() {
   QCOMPARE(font.styleHint(), QFont::Monospace);
 }
 
-void HexViewTest::dataUnknownRoleIsInvalid() {
+void HexViewTest::dataUnknownRoleIsInvalid() const {
   HexView model;
   QVERIFY(!model.index(0, 0).data(Qt::ToolTipRole).isValid());
   QVERIFY(!model.index(0, 0).data(Qt::BackgroundRole).isValid());
 }
 
-void HexViewTest::buildSingleRow() {
+void HexViewTest::buildSingleRow() const {
   HexView model;
   model.buildHexTable(sequentialHex(16));
   QCOMPARE(model.rowCount(), 1);
@@ -151,7 +156,7 @@ void HexViewTest::buildSingleRow() {
   }
 }
 
-void HexViewTest::buildMultipleRows() {
+void HexViewTest::buildMultipleRows() const {
   HexView model;
   model.buildHexTable(sequentialHex(48));
   QCOMPARE(model.rowCount(), 3);
@@ -161,7 +166,7 @@ void HexViewTest::buildMultipleRows() {
   QVERIFY(model.index(0, 0).data() != model.index(1, 0).data());
 }
 
-void HexViewTest::hexIsUppercased() {
+void HexViewTest::hexIsUppercased() const {
   HexView model;
   model.buildHexTable(QString("abcdef").repeated(5) + "ff");  // 16 bytes, lowercase input
   QCOMPARE(model.index(0, 0).data().toString(), QString("AB"));
@@ -169,17 +174,17 @@ void HexViewTest::hexIsUppercased() {
   QCOMPARE(model.index(0, 15).data().toString(), QString("FF"));
 }
 
-void HexViewTest::asciiTranslation_data() {
+void HexViewTest::asciiTranslation_data() const {
   QTest::addColumn<QByteArray>("bytes");
   QTest::addColumn<QString>("ascii");
   QTest::newRow("printable text") << QByteArray("Hello, minipro!!") << "Hello, minipro!!";
   QTest::newRow("space is printable") << QByteArray("A B C D E F G H ") << "A B C D E F G H ";
-  QTest::newRow("NUL and control chars") << QByteArray("\x00\x01\x09\x0A\x0D\x1F" "ABCDEFGHIJ", 16)
+  QTest::newRow("NUL and control chars") << bytesOf({0x00, 0x01, 0x09, 0x0A, 0x0D, 0x1F}) + "ABCDEFGHIJ"
                                          << "......ABCDEFGHIJ";
-  QTest::newRow("DEL and high bytes") << QByteArray("\x7E\x7F\x80\xFF" "abcdefghijkl", 16) << "~...abcdefghijkl";
+  QTest::newRow("DEL and high bytes") << bytesOf({0x7E, 0x7F, 0x80, 0xFF}) + "abcdefghijkl" << "~...abcdefghijkl";
 }
 
-void HexViewTest::asciiTranslation() {
+void HexViewTest::asciiTranslation() const {
   QFETCH(QByteArray, bytes);
   QFETCH(QString, ascii);
   QCOMPARE(bytes.size(), 16);
@@ -188,7 +193,7 @@ void HexViewTest::asciiTranslation() {
   QCOMPARE(model.index(0, kAsciiColumn).data().toString(), ascii);
 }
 
-void HexViewTest::buildEmitsModelReset() {
+void HexViewTest::buildEmitsModelReset() const {
   HexView model;
   QSignalSpy aboutToReset(&model, &QAbstractItemModel::modelAboutToBeReset);
   QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
@@ -199,7 +204,7 @@ void HexViewTest::buildEmitsModelReset() {
   QCOMPARE(reset.count(), 2);
 }
 
-void HexViewTest::rebuildReplacesPreviousContent() {
+void HexViewTest::rebuildReplacesPreviousContent() const {
   HexView model;
   model.buildHexTable(sequentialHex(64));
   model.buildHexTable(QString("ff").repeated(16));
@@ -207,7 +212,7 @@ void HexViewTest::rebuildReplacesPreviousContent() {
   QCOMPARE(model.index(0, 0).data().toString(), QString("FF"));
 }
 
-void HexViewTest::trailingPartialRowIsKept() {
+void HexViewTest::trailingPartialRowIsKept() const {
   HexView model;
   model.buildHexTable(sequentialHex(20));  // one full row + 4 bytes
   QCOMPARE(model.rowCount(), 2);
@@ -221,7 +226,7 @@ void HexViewTest::trailingPartialRowIsKept() {
   QCOMPARE(model.headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("000010"));
 }
 
-void HexViewTest::lessThanOneRowDoesNotCrash_data() {
+void HexViewTest::lessThanOneRowDoesNotCrash_data() const {
   QTest::addColumn<int>("byteCount");
   QTest::addColumn<int>("rows");
   QTest::newRow("empty") << 0 << 0;
@@ -229,7 +234,7 @@ void HexViewTest::lessThanOneRowDoesNotCrash_data() {
   QTest::newRow("15 bytes") << 15 << 1;
 }
 
-void HexViewTest::lessThanOneRowDoesNotCrash() {
+void HexViewTest::lessThanOneRowDoesNotCrash() const {
   // Regression: columnCount() used to index row 0 of an empty table (crash on empty / tiny reads).
   QFETCH(int, byteCount);
   QFETCH(int, rows);
@@ -244,7 +249,7 @@ void HexViewTest::lessThanOneRowDoesNotCrash() {
   }
 }
 
-void HexViewTest::validParentHasNoChildren() {
+void HexViewTest::validParentHasNoChildren() const {
   HexView model;
   const QModelIndex cell = model.index(0, 0);
   QCOMPARE(model.rowCount(cell), 0);
@@ -252,20 +257,20 @@ void HexViewTest::validParentHasNoChildren() {
   QVERIFY(!static_cast<QAbstractItemModel &>(model).hasChildren(cell));
 }
 
-void HexViewTest::modelTesterOnPlaceholder() {
+void HexViewTest::modelTesterOnPlaceholder() const {
   HexView model;
   QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::QtTest);
   model.clearHexTable();
 }
 
-void HexViewTest::modelTesterOnBuiltTable() {
+void HexViewTest::modelTesterOnBuiltTable() const {
   HexView model;
   QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::QtTest);
   model.buildHexTable(sequentialHex(256));
   QCOMPARE(model.rowCount(), 16);
 }
 
-void HexViewTest::largeImageIsCheapToLoad() {
+void HexViewTest::largeImageIsCheapToLoad() const {
   // A 16 MiB SPI flash (e.g. 25Q128). Regression: the model stored one QString per byte, which
   // took gigabytes and many seconds for chips this size.
   constexpr qsizetype kSize = 16 * 1024 * 1024;

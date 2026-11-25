@@ -27,7 +27,7 @@ QT_QPA_PLATFORM=offscreen tests/build/mainwindow_test readDeviceFillsHexView   #
 ```
 
 - `MainWindowTest` never calls the real CLI. It copies `tests/fake_minipro.sh` into a temp dir as `minipro`, puts it first on `PATH`, and steers it with `FAKE_MINIPRO_*` env vars (see the script header). Every call's arguments are logged, so tests can check the exact command line. The fake's output is shaped to match MainWindow's regex parsing; it is not a capture from real hardware. Each test runs inside a temp working dir, and reads go to the window's own `read_file_path()`.
-- Tests reach private members through `friend class MainWindowTest` / `friend struct MainWindowDeleter` in `MainWindow.h`.
+- Tests reach private members through `friend class MainWindowTest` in `MainWindow.h`.
 - Record a known, unfixed bug with `QEXPECT_FAIL`, or with `QSKIP` if it would crash the run. When the bug is fixed, remove the marker: an XPASS counts as a failure.
 - Write and Update Firmware open a modal `QFileDialog`, so they have no tests.
 
@@ -35,7 +35,7 @@ CI (`.github/workflows/tests.yaml`) runs `cd tests && ./run_tests.sh` on macOS. 
 
 ## Architecture
 
-- `src/MainWindow.{h,cpp}` — everything except the hex model. The constructor builds the whole UI programmatically (no `.ui` files) inside a separate top-level `QWidget *window` (not the `QMainWindow` itself — `main.cpp` never calls `show()` on `MainWindow`). Signals are wired with old-style `SIGNAL()/SLOT()` string macros.
+- `src/MainWindow.{h,cpp}` — everything except the hex model. The constructor builds the whole UI programmatically (no `.ui` files) inside a separate top-level `window` (`std::unique_ptr<QWidget>` owned by `MainWindow`; the `QMainWindow` itself is never shown). Signals are wired with old-style `SIGNAL()/SLOT()` string macros.
 - Two ways of invoking `minipro`:
   - `run_process()` — **synchronous**, for quick queries only: `--version` → `--presence_check` → `-l` (device list) → `-d <device>` (device info). It closes minipro's input, so the "Which database...?" prompt minipro shows without a programmer aborts at once. It stops minipro after `sync_timeout_ms` (10 s), and it reports failures in the Output pane rather than returning them as output. Output is regex-parsed: everything before `Serial code:` is stripped, `Name:`/`Memory:`/… fields are extracted, and `\e[K` escape sequences are removed. Anything that touches the chip goes through `run_async_process()`, including Run Command.
   - `run_async_process()` — **asynchronous** `QProcess` for device operations (read `-r`, write `-w`, firmware update `-F`, and Run Command's erase or checks), streaming stderr/stdout into the Output pane. `async_process_finished()` loads the hex view only after a **Read** that exited normally with code 0. A failed read, a crash, a non-zero exit, or any write or firmware update resets it to the placeholder, and every failure is reported in the Output pane (`async_process_error()` covers `FailedToStart`). `read_device()` deletes the previous read file before it starts, so an old file is never shown as new data. If the read file can't be opened after a successful read, that's reported as an error, not shown as an empty chip.

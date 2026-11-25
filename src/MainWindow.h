@@ -21,20 +21,19 @@
 #include <QHeaderView>
 #include <iostream>
 #include <functional>
+#include <memory>
 #include <array>
 #include "HexView.h"
 
 class MainWindow : public QMainWindow {
  Q_OBJECT
   friend class MainWindowTest;
-  friend struct MainWindowDeleter;
 
  public:
   explicit MainWindow(QWidget *parent = nullptr);
   ~MainWindow() override;
 
   void check_for_minipro();
-  bool minipro_found;
 
  private slots:
   void check_for_programmer();
@@ -51,7 +50,9 @@ class MainWindow : public QMainWindow {
   void update_firmware();
 
  private:
-  QWidget *window;
+  // The top-level widget that holds the whole UI (MainWindow itself is never shown).
+  std::unique_ptr<QWidget> window;
+  bool minipro_found = false;
 
   QGridLayout *layout;
 
