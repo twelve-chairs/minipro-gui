@@ -3,9 +3,32 @@
 #include <QAbstractItemModelTester>
 #include <QSignalSpy>
 #include <QElapsedTimer>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#else
 #include <sys/resource.h>
+#endif
 
 namespace {
+// The most memory this process has used so far, in MiB.
+long peakMemoryMiB() {
+#ifdef Q_OS_WIN
+  PROCESS_MEMORY_COUNTERS counters{};
+  GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
+  return static_cast<long>(counters.PeakWorkingSetSize / (1024 * 1024));
+#else
+  rusage usage{};
+  getrusage(RUSAGE_SELF, &usage);
+  // ru_maxrss is bytes on macOS and kilobytes on Linux.
+#ifdef Q_OS_MACOS
+  return usage.ru_maxrss / (1024 * 1024);
+#else
+  return usage.ru_maxrss / 1024;
+#endif
+#endif
+}
+
 constexpr int kByteColumns = 16;
 constexpr int kAsciiColumn = 16;
 constexpr int kColumnCount = 17;
@@ -277,21 +300,13 @@ void HexViewTest::largeImageIsCheapToLoad() const {
   QByteArray image(kSize, '\0');
   for (qsizetype i = 0; i < kSize; i++) image[i] = static_cast<char>(i * 7);
 
-  rusage before{};
-  getrusage(RUSAGE_SELF, &before);
+  const long peakBefore = peakMemoryMiB();
   QElapsedTimer timer;
   timer.start();
   HexView model;
   model.loadBytes(image);
   const qint64 elapsedMs = timer.elapsed();
-  rusage after{};
-  getrusage(RUSAGE_SELF, &after);
-  // ru_maxrss is bytes on macOS and kilobytes on Linux.
-#ifdef Q_OS_MACOS
-  const long growthMiB = (after.ru_maxrss - before.ru_maxrss) / (1024 * 1024);
-#else
-  const long growthMiB = (after.ru_maxrss - before.ru_maxrss) / 1024;
-#endif
+  const long growthMiB = peakMemoryMiB() - peakBefore;
   qInfo("loaded 16 MiB in %lld ms, peak memory grew by %ld MiB", elapsedMs, growthMiB);
 
   QCOMPARE(model.rowCount(), static_cast<int>(kSize / 16));

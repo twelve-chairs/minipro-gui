@@ -31,6 +31,10 @@ add_qt_test(hexview_test
         ${SRC_DIR}/HexView.cpp
 )
 
+if (WIN32)
+  target_link_libraries(hexview_test PRIVATE psapi)  # GetProcessMemoryInfo, for the memory check
+endif ()
+
 add_qt_test(mainwindow_test
         MainWindowTest.cpp
         ${SRC_DIR}/MainWindow.h
