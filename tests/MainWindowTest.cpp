@@ -29,6 +29,9 @@ class MainWindowTest : public QObject {
   void missingMiniproDisablesUi();
   void detectsProgrammer();
   void missingProgrammerDisablesUi();
+  void presenceCheckParsing_data();
+  void presenceCheckParsing();
+  void presenceCheckDoesNotDuplicateProgrammer();
   void deviceListIsSortedAndDeduplicated();
   void selectDeviceFillsDeviceInfo();
   void selectDeviceIgnoresEmptyName();
@@ -102,6 +105,7 @@ void MainWindowTest::init() {
   qputenv("PATH", fakeBinDir.toLocal8Bit() + ":" + originalPath);
   qputenv("FAKE_MINIPRO_LOG", logPath.toLocal8Bit());
   qunsetenv("FAKE_MINIPRO_NO_PROGRAMMER");
+  qunsetenv("FAKE_MINIPRO_PRESENCE");
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
   qunsetenv("FAKE_MINIPRO_READ_EMPTY");
@@ -547,6 +551,42 @@ void MainWindowTest::firmwarePromptDoesNotHang() {
   QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
   QVERIFY(mw->status_view->toPlainText().contains("[Error]: minipro exited with code 1"));
   QVERIFY(mw->button_update->isEnabled());
+}
+
+void MainWindowTest::presenceCheckParsing_data() {
+  QTest::addColumn<QString>("output");
+  QTest::addColumn<QString>("programmer");  // empty: no programmer
+  QTest::newRow("TL866II+") << "tl866ii: TL866II+" << "TL866II+";
+  QTest::newRow("TL866A") << "tl866a: TL866A" << "TL866A";
+  QTest::newRow("T48 with warning first")
+      << "Warning: T48 support is not yet complete!\nt48: T48" << "T48";
+  QTest::newRow("no programmer") << "[No programmer found]" << "";
+  QTest::newRow("unknown version") << "[Unknown programmer version]" << "";
+  // Regression: anything after the first ": " on the last line was taken as the programmer.
+  QTest::newRow("error line") << "Error: USB device not found" << "";
+  QTest::newRow("warning line") << "Warning: firmware: too old" << "";
+  QTest::newRow("empty") << "" << "";
+}
+
+void MainWindowTest::presenceCheckParsing() {
+  QFETCH(QString, output);
+  QFETCH(QString, programmer);
+  if (output.isEmpty()) qputenv("FAKE_MINIPRO_PRESENCE", " ");
+  else qputenv("FAKE_MINIPRO_PRESENCE", output.toLocal8Bit());
+  auto mw = makeWindow();
+  QCOMPARE(mw->programmer_found, !programmer.isEmpty());
+  QCOMPARE(mw->button_read->isEnabled(), !programmer.isEmpty());
+  if (!programmer.isEmpty()) {
+    QCOMPARE(mw->programmer, programmer);
+    QCOMPARE(mw->combobox_programmer->itemText(0), programmer);
+  }
+}
+
+void MainWindowTest::presenceCheckDoesNotDuplicateProgrammer() {
+  auto mw = makeWindow();
+  mw->check_for_programmer();
+  mw->check_for_programmer();
+  QCOMPARE(mw->combobox_programmer->count(), 1);
 }
 
 QTEST_MAIN(MainWindowTest)

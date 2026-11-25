@@ -305,10 +305,18 @@ void MainWindow::check_for_programmer() {
     QStringList arguments;
     arguments << "--presence_check";
 
-    static QRegularExpression re("(?<=: ).*$");
-    QRegularExpressionMatch match = re.match(run_process(*status_view, arguments).trimmed());
+    // minipro prints one line, "<id>: <name>" (e.g. "tl866ii: TL866II+", "t48: T48"), or
+    // "[No programmer found]" / "[Unknown programmer version]". Accept only that shape: a
+    // lowercase id, so "Error: ..." or "Warning: ..." lines are never taken for a programmer.
+    static const QRegularExpression re(R"(^[a-z][a-z0-9]*: (\S.*)$)",
+                                       QRegularExpression::MultilineOption);
+    QRegularExpressionMatch match = re.match(run_process(*status_view, arguments, "stderr"));
+    // This runs on every highlight, so refill rather than add duplicates. Block signals while
+    // refilling: changing the current item emits highlighted(), which would call this again.
+    const QSignalBlocker blocker(combobox_programmer);
+    combobox_programmer->clear();
     if (match.hasMatch()) {
-      programmer = match.captured(0);
+      programmer = match.captured(1).trimmed();
       programmer_found = true;
       combobox_programmer->addItem(programmer);
       enable_buttons();

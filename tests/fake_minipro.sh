@@ -5,6 +5,7 @@
 # Environment:
 #   FAKE_MINIPRO_LOG          file each invocation's arguments are appended to (one line per call)
 #   FAKE_MINIPRO_NO_PROGRAMMER  if set, --presence_check reports no programmer
+#   FAKE_MINIPRO_PRESENCE     if set, --presence_check prints this text instead (\n allowed)
 #   FAKE_MINIPRO_READ_HEX     hex string written (as bytes) to the -r target file
 #   FAKE_MINIPRO_READ_EMPTY   if set, -r writes an empty file
 #   FAKE_MINIPRO_READ_EXIT    exit code for -r / -w / -F operations (default 0)
@@ -24,10 +25,13 @@ case "$1" in
     exit 0
     ;;
   --presence_check)
-    if [ -n "$FAKE_MINIPRO_NO_PROGRAMMER" ]; then
-      echo "No programmer found." >&2
+    # Same wording as minipro's print_connected_programmer_and_exit()
+    if [ -n "$FAKE_MINIPRO_PRESENCE" ]; then
+      printf '%b\n' "$FAKE_MINIPRO_PRESENCE" >&2
+    elif [ -n "$FAKE_MINIPRO_NO_PROGRAMMER" ]; then
+      echo "[No programmer found]" >&2
     else
-      echo "Found programmer: TL866II+" >&2
+      echo "tl866ii: TL866II+" >&2
     fi
     exit 0
     ;;
