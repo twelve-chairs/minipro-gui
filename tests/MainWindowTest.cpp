@@ -37,12 +37,16 @@ class MainWindowTest : public QObject {
   void parseCheckboxesEachFlag_data();
   void parseCheckboxesEachFlag();
   void parseCheckboxesAllChecked();
-  void runCommandPassesDeviceAndFlags();
+  void runCommandRunsOneActionWithOptions();
+  void runCommandRefusesZeroOrSeveralActions_data();
+  void runCommandRefusesZeroOrSeveralActions();
+  void writePassesOnlyOptionFlags();
+  void updateFirmwarePassesNoCheckboxFlags();
   void runProcessEchoesInputAndStripsEscapes();
 
   // Reading a device into the hex view
   void readDeviceFillsHexView();
-  void readDevicePassesCheckboxFlags();
+  void readDevicePassesOnlyOptionFlags();
   void failedReadRestoresPlaceholder();
   void readWithNoDataShowsEmptyTable();
 
@@ -183,27 +187,36 @@ void MainWindowTest::selectDeviceIgnoresEmptyName() {
   QCOMPARE(loggedCalls().size(), callsBefore);
 }
 
+namespace {
+void checkAll(std::initializer_list<QCheckBox *> boxes) {
+  for (auto *box : boxes) box->setChecked(true);
+}
+}  // namespace
+
 void MainWindowTest::parseCheckboxesNoneChecked() {
   auto mw = makeWindow();
-  QVERIFY(mw->parse_checkboxes().isEmpty());
+  QVERIFY(mw->parse_option_checkboxes().isEmpty());
+  QVERIFY(mw->parse_action_checkboxes().isEmpty());
 }
 
 void MainWindowTest::parseCheckboxesEachFlag_data() {
   QTest::addColumn<QString>("checkbox");
   QTest::addColumn<QString>("flag");
-  QTest::newRow("no_id_error") << "no_id_error" << "--no_id_error";
-  QTest::newRow("skip_id") << "skip_id" << "--skip_id";
-  QTest::newRow("no_size_error") << "no_size_error" << "--no_size_error";
-  QTest::newRow("skip_verify") << "skip_verify" << "--skip_verify";
-  QTest::newRow("pin_check") << "pin_check" << "--pin_check";
-  QTest::newRow("blank_check") << "blank_check" << "--blank_check";
-  QTest::newRow("erase_device") << "erase_device" << "--erase";
-  QTest::newRow("hardware_check") << "hardware_check" << "--hardware_check";
+  QTest::addColumn<bool>("isAction");
+  QTest::newRow("no_id_error") << "no_id_error" << "--no_id_error" << false;
+  QTest::newRow("skip_id") << "skip_id" << "--skip_id" << false;
+  QTest::newRow("no_size_error") << "no_size_error" << "--no_size_error" << false;
+  QTest::newRow("skip_verify") << "skip_verify" << "--skip_verify" << false;
+  QTest::newRow("pin_check") << "pin_check" << "--pin_check" << false;
+  QTest::newRow("blank_check") << "blank_check" << "--blank_check" << true;
+  QTest::newRow("erase_device") << "erase_device" << "--erase" << true;
+  QTest::newRow("hardware_check") << "hardware_check" << "--hardware_check" << true;
 }
 
 void MainWindowTest::parseCheckboxesEachFlag() {
   QFETCH(QString, checkbox);
   QFETCH(QString, flag);
+  QFETCH(bool, isAction);
   auto mw = makeWindow();
   const QMap<QString, QCheckBox *> boxes{
       {"no_id_error", mw->no_id_error}, {"skip_id", mw->skip_id},
@@ -212,27 +225,68 @@ void MainWindowTest::parseCheckboxesEachFlag() {
       {"erase_device", mw->erase_device}, {"hardware_check", mw->hardware_check}};
   QVERIFY(boxes.contains(checkbox));
   boxes.value(checkbox)->setChecked(true);
-  QCOMPARE(mw->parse_checkboxes(), QStringList{flag});
+  const QStringList expected{flag};
+  QCOMPARE(mw->parse_action_checkboxes(), isAction ? expected : QStringList{});
+  QCOMPARE(mw->parse_option_checkboxes(), isAction ? QStringList{} : expected);
 }
 
 void MainWindowTest::parseCheckboxesAllChecked() {
   auto mw = makeWindow();
-  for (auto *box : {mw->no_id_error, mw->skip_id, mw->no_size_error, mw->skip_verify,
-                    mw->pin_check, mw->blank_check, mw->erase_device, mw->hardware_check}) {
-    box->setChecked(true);
-  }
-  const QStringList expected{"--no_id_error", "--skip_id", "--no_size_error", "--skip_verify",
-                             "--pin_check", "--blank_check", "--erase", "--hardware_check"};
-  QCOMPARE(mw->parse_checkboxes(), expected);
+  checkAll({mw->no_id_error, mw->skip_id, mw->no_size_error, mw->skip_verify, mw->pin_check,
+            mw->blank_check, mw->erase_device, mw->hardware_check});
+  const QStringList options{"--no_id_error", "--skip_id", "--no_size_error", "--skip_verify",
+                            "--pin_check"};
+  const QStringList actions{"--blank_check", "--erase", "--hardware_check"};
+  QCOMPARE(mw->parse_option_checkboxes(), options);
+  QCOMPARE(mw->parse_action_checkboxes(), actions);
 }
 
-void MainWindowTest::runCommandPassesDeviceAndFlags() {
+void MainWindowTest::runCommandRunsOneActionWithOptions() {
   auto mw = makeWindow();
   mw->combobox_device->setCurrentText("AT28C256");
-  mw->erase_device->setChecked(true);
-  mw->blank_check->setChecked(true);
+  checkAll({mw->erase_device, mw->pin_check});
   mw->run_command();
-  QCOMPARE(loggedCalls().last(), QString("-p AT28C256 --blank_check --erase"));
+  QCOMPARE(loggedCalls().last(), QString("-p AT28C256 --erase --pin_check"));
+}
+
+void MainWindowTest::runCommandRefusesZeroOrSeveralActions_data() {
+  QTest::addColumn<QStringList>("checked");
+  QTest::newRow("no action") << QStringList{"pin_check"};
+  QTest::newRow("blank + erase") << QStringList{"blank_check", "erase_device"};
+  QTest::newRow("all three") << QStringList{"blank_check", "erase_device", "hardware_check"};
+}
+
+void MainWindowTest::runCommandRefusesZeroOrSeveralActions() {
+  // minipro runs a single action; given several it silently picks one.
+  QFETCH(QStringList, checked);
+  auto mw = makeWindow();
+  const QMap<QString, QCheckBox *> boxes{{"pin_check", mw->pin_check},
+                                         {"blank_check", mw->blank_check},
+                                         {"erase_device", mw->erase_device},
+                                         {"hardware_check", mw->hardware_check}};
+  for (const auto &name : checked) boxes.value(name)->setChecked(true);
+  const auto callsBefore = loggedCalls().size();
+  mw->run_command();
+  QCOMPARE(loggedCalls().size(), callsBefore);
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: Run Command needs exactly one of"));
+}
+
+void MainWindowTest::writePassesOnlyOptionFlags() {
+  // Regression: --blank_check replaced -w (nothing written, exit 0) and --hardware_check ran
+  // instead of the write.
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  checkAll({mw->blank_check, mw->erase_device, mw->hardware_check, mw->no_size_error});
+  mw->write_file_to_device("/images/fw.bin");
+  QTRY_VERIFY(loggedCalls().contains("-p AT28C256 -w /images/fw.bin --no_size_error"));
+}
+
+void MainWindowTest::updateFirmwarePassesNoCheckboxFlags() {
+  auto mw = makeWindow();
+  checkAll({mw->no_id_error, mw->skip_id, mw->no_size_error, mw->skip_verify, mw->pin_check,
+            mw->blank_check, mw->erase_device, mw->hardware_check});
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(loggedCalls().contains("-F /images/update.dat"));
 }
 
 void MainWindowTest::runProcessEchoesInputAndStripsEscapes() {
@@ -266,11 +320,12 @@ void MainWindowTest::readDeviceFillsHexView() {
   QVERIFY(mw->status_view->toPlainText().contains("[Input]: minipro -p AT28C256 -r temp.bin"));
 }
 
-void MainWindowTest::readDevicePassesCheckboxFlags() {
+void MainWindowTest::readDevicePassesOnlyOptionFlags() {
+  // Regression: --blank_check replaced -r, so the "read" showed the previous temp.bin.
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("00").repeated(16));
   auto mw = makeWindow();
   mw->combobox_device->setCurrentText("W27C512");
-  mw->skip_verify->setChecked(true);
+  checkAll({mw->skip_verify, mw->blank_check, mw->erase_device, mw->hardware_check});
   mw->read_device();
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("00"));
   QVERIFY(loggedCalls().contains("-p W27C512 -r temp.bin --skip_verify"));

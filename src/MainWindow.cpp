@@ -144,10 +144,6 @@ void MainWindow::run_async_process(QStringList &process_arguments,
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
   }
-  for (auto const &each : parse_checkboxes()) {
-    process_arguments_string += each + " ";
-    process_arguments.append(each);
-  }
 
   status_view->appendPlainText("[Input]: minipro " + process_arguments_string);
   if (type == "stderr") {
@@ -175,13 +171,22 @@ void MainWindow::async_process_std_output() const {
   status_view->ensureCursorVisible();
 }
 
-QStringList MainWindow::parse_checkboxes() const {
+// Options modify an operation; they are safe to add to Read, Write and Run Command.
+QStringList MainWindow::parse_option_checkboxes() const {
   QStringList arguments;
   if (no_id_error->isChecked()) arguments.append("--no_id_error");
   if (skip_id->isChecked()) arguments.append("--skip_id");
   if (no_size_error->isChecked()) arguments.append("--no_size_error");
   if (skip_verify->isChecked()) arguments.append("--skip_verify");
   if (pin_check->isChecked()) arguments.append("--pin_check");
+  return arguments;
+}
+
+// Actions are operations of their own in minipro: --blank_check replaces an earlier -r/-w,
+// and --hardware_check runs as soon as it is parsed. They are only used by Run Command, never
+// added to Read, Write or Update Firmware.
+QStringList MainWindow::parse_action_checkboxes() const {
+  QStringList arguments;
   if (blank_check->isChecked()) arguments.append("--blank_check");
   if (erase_device->isChecked()) arguments.append("--erase");
   if (hardware_check->isChecked()) arguments.append("--hardware_check");
@@ -331,16 +336,24 @@ void MainWindow::select_device(const QString &selected_device) {
 
 void MainWindow::run_command() {
   if (minipro_found) {
+    const QStringList actions = parse_action_checkboxes();
+    if (actions.size() != 1) {
+      // minipro runs only one action; with several it would silently pick one.
+      status_view->appendPlainText(
+          "[Error]: Run Command needs exactly one of Blank Check, Erase Device or "
+          "Hardware Check to be checked.");
+      status_view->ensureCursorVisible();
+      return;
+    }
     QStringList arguments;
-    arguments << "-p" << device;
-    arguments.append(parse_checkboxes());
+    arguments << "-p" << device << actions << parse_option_checkboxes();
     run_process(*status_view, arguments);
   }
 }
 
 void MainWindow::read_device() {
   QStringList arguments;
-  arguments << "-p" << device << "-r" << temp_file_name;
+  arguments << "-p" << device << "-r" << temp_file_name << parse_option_checkboxes();
   run_async_process(arguments);
 }
 
@@ -354,21 +367,28 @@ void MainWindow::read_device_output(int code, QProcess::ExitStatus) {
 }
 
 void MainWindow::write_device() {
-  QString fileName = QFileDialog::getOpenFileName(this);
-  if (fileName != "") {
-    QStringList arguments;
-    arguments << "-p" << device << "-w" << fileName;
-    run_async_process(arguments);
+  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+    write_file_to_device(fileName);
   }
 }
 
+void MainWindow::write_file_to_device(const QString &file_name) {
+  QStringList arguments;
+  arguments << "-p" << device << "-w" << file_name << parse_option_checkboxes();
+  run_async_process(arguments);
+}
+
 void MainWindow::update_firmware() {
-  QString fileName = QFileDialog::getOpenFileName(this);
-  if (fileName != "") {
-    QStringList arguments;
-    arguments << "-p" << device << "-F" << fileName;
-    run_async_process(arguments);
+  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+    update_firmware_from_file(fileName);
   }
+}
+
+void MainWindow::update_firmware_from_file(const QString &file_name) {
+  // No checkbox flags: minipro handles -F as soon as it is parsed and ignores everything after it.
+  QStringList arguments;
+  arguments << "-F" << file_name;
+  run_async_process(arguments);
 }
 
 void MainWindow::build_default_hex_output() {

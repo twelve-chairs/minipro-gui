@@ -109,7 +109,10 @@ class MainWindow : public QMainWindow {
   void format_hex_table_columns() const;
   void disable_buttons();
   void enable_buttons();
-  [[nodiscard]] QStringList parse_checkboxes() const;
+  [[nodiscard]] QStringList parse_option_checkboxes() const;
+  [[nodiscard]] QStringList parse_action_checkboxes() const;
+  void write_file_to_device(const QString &);
+  void update_firmware_from_file(const QString &);
   static QString run_process(QPlainTextEdit &, const QStringList &, const QString &);
   void run_async_process(QStringList &, const QString &);
   void build_default_hex_output();
