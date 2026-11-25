@@ -39,6 +39,7 @@ class MainWindowTest : public QObject {
   void oddDeviceInfoOutput();
   void missingMiniproDisablesUi();
   void miniproInWorkingDirectoryIsNotRun();
+  void miniproFoundInFallbackFolder();
   void detectsProgrammer();
   void missingProgrammerDisablesUi();
   void presenceCheckParsing_data();
@@ -160,6 +161,8 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
   qunsetenv("FAKE_MINIPRO_INFO_FILE");
   MainWindow::sync_timeout_ms = 10000;
+  // Never fall back to the folders a real minipro is installed in.
+  MainWindow::minipro_fallback_dirs.clear();
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
   qunsetenv("FAKE_MINIPRO_READ_EMPTY");
@@ -222,7 +225,7 @@ void MainWindowTest::miniproInWorkingDirectoryIsNotRun() {
   const auto callsBefore = loggedCalls().size();
 
   mw->read_device();
-  QVERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro: it is not on PATH"));
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro: it was not found (searched PATH)"));
   QVERIFY(mw->async_process == nullptr);
   QVERIFY(mw->buttons.read->isEnabled());
 
@@ -232,6 +235,23 @@ void MainWindowTest::miniproInWorkingDirectoryIsNotRun() {
 
   QVERIFY(QFile::remove(planted));
   QCOMPARE(loggedCalls().size(), callsBefore);  // the planted copy never ran
+}
+
+void MainWindowTest::miniproFoundInFallbackFolder() {
+  // Regression: opened from the Finder, the app gets launchd's PATH without /opt/homebrew/bin, so
+  // a Homebrew minipro wasn't found. The fake's folder stands in for Homebrew's here.
+  qputenv("PATH", emptyBinDir.toLocal8Bit());
+  MainWindow::minipro_fallback_dirs = {emptyBinDir, fakeBinDir};
+  auto mw = makeWindow();
+  QVERIFY(mw->minipro_found);
+  QVERIFY(loggedCalls().contains("--version"));
+
+  // Still searched only after PATH, and never the current directory.
+  MainWindow::minipro_fallback_dirs = {emptyBinDir};
+  auto missing = makeWindow();
+  QVERIFY(!missing->minipro_found);
+  QVERIFY(missing->status_view->toPlainText().contains(
+      "[Error]: could not start minipro: it was not found (searched PATH, " + emptyBinDir + ")"));
 }
 
 void MainWindowTest::detectsProgrammer() {
