@@ -66,8 +66,16 @@ Run, in order:
    warnings are listed, not fixed, unless the change touches that line.
 2. `tests/run_tests.sh` must pass, with no unexpected `XPASS` and no new `SKIP`
    or `QEXPECT_FAIL` added without a known-bug explanation.
+3. If the change can alter what the window looks like (anything in `src/`
+   except `HexView` internals that don't change what's shown, or
+   `res/AppIcon.*`), run `tests/update_screenshot.sh` on macOS. It re-renders
+   `res/screenshot.png`, the README screenshot, from the real UI with the fake
+   `minipro`, and gives the same image for the same UI. If `git status` shows
+   the PNG changed, look at it (Read the file) before staging it with the
+   commit; if it looks wrong, that's a bug in the change. On other systems,
+   skip this and say so: the README keeps the macOS look.
 
-Skip both only for a change confined to Markdown or `.claude/`, and say so.
+Skip all three only for a change confined to Markdown or `.claude/`, and say so.
 
 Do not commit if either fails.
 

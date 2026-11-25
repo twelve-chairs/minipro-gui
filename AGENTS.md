@@ -24,7 +24,10 @@ The root `CMakeLists.txt` globs `src/*.cpp` / `src/*.h`, so new source files are
 tests/run_tests.sh                    # configure + build into tests/build, run ctest (headless, QT_QPA_PLATFORM=offscreen)
 tests/run_tests.sh -R hexview -V      # extra args go to ctest
 QT_QPA_PLATFORM=offscreen tests/build/mainwindow_test readDeviceFillsHexView   # one test function (-functions lists them)
+tests/update_screenshot.sh            # re-render res/screenshot.png (the README screenshot), on macOS
 ```
+
+`tests/screenshot.cpp` (target `screenshot`, not a test) opens the real window on the native platform with the fake `minipro` first on `PATH` (it refuses to run if `PATH` would find another one), picks AT28C256, clicks Read from Device, and saves the window at 1100×660 with `QWidget::grab()`. Its temp folder and app name are fixed, and the read file's random folder suffix is shown as `XXXXXX`, so the same UI always gives the same PNG. `/commit` runs it when a change can alter the window.
 
 - `MainWindowTest` never calls the real CLI. It copies the `fake_minipro` program (`tests/fake_minipro.cpp`, plain C++ without Qt, built by `tests/CMakeLists.txt`) into a temp dir as `minipro` (`minipro.exe` on Windows), puts it first on `PATH`, and steers it with `FAKE_MINIPRO_*` env vars (see the header of `fake_minipro.cpp`). Every call's arguments are logged, so tests can check the exact command line. The fake's output is shaped to match MainWindow's regex parsing; it is not a capture from real hardware. Each test runs inside a temp working dir, and reads go to the window's own `read_file`.
 - Tests reach private members through `friend class MainWindowTest` in `MainWindow.h`.
