@@ -333,10 +333,12 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
 void MainWindow::check_for_minipro() {
   QStringList arguments;
   arguments << "--version";
-  auto initial_check_error = run_process(*status_view, arguments);
-  if (initial_check_error.length() > 0 && initial_check_error.contains("minipro version")) {
-    static QRegularExpression re("minipro version.*\\n");
-    QRegularExpressionMatch match = re.match(initial_check_error);
+  const QString output = run_process(*status_view, arguments, "stderr");
+  // minipro's sign-on line, e.g. "minipro version 0.7.4     A free and open TL866 series
+  // programmer". Anchored to the start of a line, and it doesn't need a newline after it.
+  static const QRegularExpression re("^minipro version .*$", QRegularExpression::MultilineOption);
+  if (!output.isEmpty()) {
+    QRegularExpressionMatch match = re.match(output);
     if (match.hasMatch()) {
       window->setWindowTitle(match.captured(0).trimmed());
       minipro_found = true;

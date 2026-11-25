@@ -26,6 +26,10 @@ class MainWindowTest : public QObject {
 
   // Startup / discovery
   void detectsMinipro();
+  void versionParsing_data();
+  void versionParsing();
+  void oddDeviceInfoOutput_data();
+  void oddDeviceInfoOutput();
   void missingMiniproDisablesUi();
   void detectsProgrammer();
   void missingProgrammerDisablesUi();
@@ -120,6 +124,8 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_INFO_SLEEP");
   qunsetenv("FAKE_MINIPRO_INFO_FAIL");
   qunsetenv("FAKE_MINIPRO_CRLF");
+  qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
+  qunsetenv("FAKE_MINIPRO_INFO_TEXT");
   MainWindow::sync_timeout_ms = 10000;
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
@@ -775,6 +781,59 @@ void MainWindowTest::readsGoToPrivateFolderNotWorkingDirectory() {
   const QString folder = read.absolutePath();
   mw.reset();
   QVERIFY(!QFileInfo::exists(folder));
+}
+
+void MainWindowTest::versionParsing_data() {
+  QTest::addColumn<QString>("output");
+  QTest::addColumn<QString>("title");  // empty: minipro not detected
+  QTest::newRow("real output")
+      << "Supported programmers: TL866A/CS, TL866II+, T48, T56\\nminipro version 0.7.4     A free "
+         "and open TL866 series programmer\\nCommit date:\\t2024-01-01\\n"
+      << "minipro version 0.7.4     A free and open TL866 series programmer";
+  // Regression: the version line was only found when a newline followed it.
+  QTest::newRow("version line last, no newline") << "minipro version 0.7.5" << "minipro version 0.7.5";
+  QTest::newRow("windows line endings") << "minipro version 0.7.5\\r\\n" << "minipro version 0.7.5";
+  QTest::newRow("another program") << "someprog version 1.0\\n" << "";
+  QTest::newRow("mentioned mid-line") << "error: needs minipro version 0.8\\n" << "";
+  QTest::newRow("empty") << "" << "";
+}
+
+void MainWindowTest::versionParsing() {
+  QFETCH(QString, output);
+  QFETCH(QString, title);
+  qputenv("FAKE_MINIPRO_VERSION_TEXT", output.isEmpty() ? QByteArray(" ") : output.toLocal8Bit());
+  auto mw = makeWindow();
+  QCOMPARE(mw->minipro_found, !title.isEmpty());
+  QCOMPARE(mw->window->windowTitle(), title.isEmpty() ? QString("minipro CLI not found!") : title);
+}
+
+void MainWindowTest::oddDeviceInfoOutput_data() {
+  QTest::addColumn<QString>("output");
+  QTest::addColumn<QString>("name");    // expected Name field; empty: no device information
+  QTest::addColumn<QString>("memory");
+  QTest::newRow("fields missing") << "Name: X28C64\\nPackage: DIP28\\n" << "X28C64" << "";
+  QTest::newRow("unknown lines and order")
+      << "Something new: 1\\nMemory: 8192 Bytes\\nName: X28C64\\nVPP: 12V\\n" << "X28C64" << "8192 Bytes";
+  QTest::newRow("no fields") << "Unexpected output\\n" << "" << "";
+  QTest::newRow("escape sequences")
+      << "\\033[1mWarning\\033[0m\\nName: X28C64\\033[K\\nMemory: 8192 Bytes\\n" << "X28C64" << "8192 Bytes";
+  QTest::newRow("very long line")
+      << "Name: X28C64\\nMemory: " + QString(100000, 'A') + "\\n" << "X28C64" << QString(100000, 'A');
+}
+
+void MainWindowTest::oddDeviceInfoOutput() {
+  // minipro's output changes between versions; parsing must never crash or show stale data.
+  QFETCH(QString, output);
+  QFETCH(QString, name);
+  QFETCH(QString, memory);
+  auto mw = makeWindow();
+  qputenv("FAKE_MINIPRO_INFO_TEXT", output.toLocal8Bit());
+  mw->combobox_device->setCurrentText("AT28C256");
+  QCOMPARE(mw->device_name->text(), name);
+  // QLineEdit keeps at most maxLength() (32767) characters.
+  QCOMPARE(mw->device_memory->text(), memory.left(mw->device_memory->maxLength()));
+  QCOMPARE(mw->status_view->toPlainText().contains("[Error]: no device information for AT28C256"),
+           name.isEmpty());
 }
 
 QTEST_MAIN(MainWindowTest)

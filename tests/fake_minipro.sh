@@ -17,6 +17,8 @@
 #   FAKE_MINIPRO_INFO_SLEEP   seconds -l and -d take (default 0)
 #   FAKE_MINIPRO_INFO_FAIL    if set, -d reports an unknown device and exits 1
 #   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
+#   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (printf %b escapes)
+#   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (printf %b escapes)
 
 ARGS="$*"
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
@@ -25,6 +27,10 @@ fi
 
 case "$1" in
   --version)
+    if [ -n "$FAKE_MINIPRO_VERSION_TEXT" ]; then
+      printf '%b' "$FAKE_MINIPRO_VERSION_TEXT" >&2
+      exit 0
+    fi
     echo "minipro version 0.7.4     A free and open TL866 series programmer" >&2
     echo "Commit date:	2024-01-01 00:00:00 +0000" >&2
     exit 0
@@ -65,6 +71,10 @@ case "$1" in
     exit 0
     ;;
   -d)
+    if [ -n "$FAKE_MINIPRO_INFO_TEXT" ]; then
+      printf '%b' "$FAKE_MINIPRO_INFO_TEXT" >&2
+      exit 0
+    fi
     if [ -n "$FAKE_MINIPRO_INFO_FAIL" ]; then
       echo "Unknown device: $2" >&2
       exit 1
