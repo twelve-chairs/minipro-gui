@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include <QMessageBox>
+#include <QTimer>
 
 namespace {
 // minipro's stdin prompts for -F, and the answers for "go ahead" and "cancel".
@@ -52,6 +53,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(buttons.read, SIGNAL (released()), this, SLOT (read_device()));
   vbox3->addWidget(buttons.write, 6, 1);
   connect(buttons.write, SIGNAL (released()), this, SLOT (write_device()));
+  vbox3->addWidget(buttons.cancel, 7, 0, 1, 0);
+  connect(buttons.cancel, SIGNAL (released()), this, SLOT (cancel_operation()));
   groupBox3->setLayout(vbox3);
   layout->addWidget(groupBox3, 2, 0);
 
@@ -141,6 +144,7 @@ void MainWindow::initializer() {
   buttons.write = new QPushButton("Write to Device", window.get());
   buttons.read = new QPushButton("Read from Device", window.get());
   buttons.update = new QPushButton("Update Firmware", window.get());
+  buttons.cancel = new QPushButton("Cancel", window.get());
 
   options.no_id_error = new QCheckBox("Ignore ID Error", window.get());
   options.skip_id = new QCheckBox("Skip ID Check", window.get());
@@ -176,7 +180,8 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
                                    AsyncOperation operation) {
   if (refuse_if_operation_running()) return;
   QString process_arguments_string = "";
-  async_operation = operation;
+  running = RunningOperation{};
+  running.kind = operation;
   async_process = new QProcess(this);
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
@@ -197,8 +202,6 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
   update_controls();  // async_process is set: disables everything that starts minipro
-  firmware_prompt.output.clear();
-  firmware_prompt.answered = false;
   async_process->start("minipro", process_arguments);
   // minipro asks some questions on stdin. A firmware update's y/n prompt is answered from the
   // GUI (answer_firmware_prompt_if_asked). Nothing answers the others, such as which database to
@@ -209,12 +212,12 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
 }
 
 void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
-  if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt.answered) return;
-  firmware_prompt.output += new_output;
+  if (running.kind != AsyncOperation::FirmwareUpdate || running.prompt_answered) return;
+  running.prompt_output += new_output;
   const FirmwarePromptKind *prompt = nullptr;
   qsizetype prompt_start = -1;
   for (const FirmwarePromptKind &kind : firmware_prompts) {
-    if (const qsizetype at = firmware_prompt.output.indexOf(kind.text); at >= 0) {
+    if (const qsizetype at = running.prompt_output.indexOf(kind.text); at >= 0) {
       prompt = &kind;
       prompt_start = at;
       break;
@@ -222,11 +225,11 @@ void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
   }
   if (prompt == nullptr) return;
   // Set before asking: the dialog runs an event loop, and more output may arrive meanwhile.
-  firmware_prompt.answered = true;
+  running.prompt_answered = true;
   QProcess *process = async_process;
   // Show what minipro printed before its question (the installed and new versions), not the
   // question or its numbered menu, which don't fit a Yes/No dialog.
-  const bool go_ahead = confirmations.firmware_update(firmware_prompt.output.left(prompt_start).trimmed());
+  const bool go_ahead = confirmations.firmware_update(running.prompt_output.left(prompt_start).trimmed());
   if (process != async_process) return;  // the operation ended while the dialog was open
   const QString answer = go_ahead ? prompt->go_ahead : prompt->cancel;
   status_view->appendPlainText("[Input]: " + answer);
@@ -389,6 +392,7 @@ void MainWindow::update_controls() {
   buttons.read->setDisabled(!can_use_device);
   buttons.write->setDisabled(!can_use_device);
   buttons.update->setDisabled(!can_use_programmer);
+  buttons.cancel->setDisabled(idle);
 }
 
 bool MainWindow::device_selected() const {
@@ -478,8 +482,10 @@ void MainWindow::run_command() {
     QStringList arguments;
     arguments << "-p" << device << chosen_actions << parse_option_checkboxes();
     // Asynchronous: an erase or blank check can take minutes on a large chip.
-    run_async_process(arguments, chosen_actions.first() == "--erase" ? AsyncOperation::Erase
-                                                                     : AsyncOperation::Check);
+    const QString &action = chosen_actions.first();
+    run_async_process(arguments, action == "--erase"            ? AsyncOperation::Erase
+                                 : action == "--hardware_check" ? AsyncOperation::HardwareCheck
+                                                                : AsyncOperation::Check);
   }
 }
 
@@ -491,9 +497,9 @@ void MainWindow::read_device() {
     status_view->ensureCursorVisible();
     return;
   }
-  arguments << "-p" << device << "-r" << read_file_path() << parse_option_checkboxes();
+  arguments << "-p" << device << "-r" << read_file << parse_option_checkboxes();
   // Remove the previous read first, so a read that writes nothing can't show old data.
-  QFile::remove(read_file_path());
+  QFile::remove(read_file);
   build_default_hex_output();
   run_async_process(arguments, AsyncOperation::Read);
 }
@@ -501,15 +507,19 @@ void MainWindow::read_device() {
 void MainWindow::async_process_finished(int code, QProcess::ExitStatus status) {
   const bool succeeded = status == QProcess::NormalExit && code == 0;
   if (!succeeded) {
-    status_view->appendPlainText(status == QProcess::CrashExit
-                                     ? QString("[Error]: minipro crashed")
-                                     : QString("[Error]: minipro exited with code %1").arg(code));
+    if (running.stopped_by_cancel) {
+      status_view->appendPlainText("[Cancelled]: minipro was stopped");
+    } else {
+      status_view->appendPlainText(status == QProcess::CrashExit
+                                       ? QString("[Error]: minipro crashed")
+                                       : QString("[Error]: minipro exited with code %1").arg(code));
+    }
     status_view->ensureCursorVisible();
   }
-  if (async_operation == AsyncOperation::Read && succeeded) {
+  if (running.kind == AsyncOperation::Read && succeeded) {
     hexViewModel.clearHexTable();
     build_formatted_hex_output();
-  } else if (async_operation == AsyncOperation::Check) {
+  } else if (running.kind == AsyncOperation::Check || running.kind == AsyncOperation::HardwareCheck) {
     // Blank, pin and hardware checks don't change the chip; keep showing the last read.
   } else {
     // A failed read has no data to show, and after a write, erase or firmware update the last
@@ -528,6 +538,47 @@ void MainWindow::async_process_error(QProcess::ProcessError error) {
     build_default_hex_output();
     end_async_process();
   }
+}
+
+// Cancel the running operation.
+// - A read or blank check changes nothing, so it is stopped at once.
+// - A firmware update waiting at its question is answered "no" first: its input is the only one
+//   left open, and closing it is always safe, including for prompts this app doesn't recognise.
+// - Otherwise minipro may be changing the chip or the programmer (write, erase, hardware check,
+//   or a firmware update already under way), so stopping it needs a confirmed warning.
+// Stopping sends SIGTERM first, so minipro can clean up if it handles it, then kills it if it is
+// still running after a few seconds.
+void MainWindow::cancel_operation() {
+  QProcess *process = async_process;
+  if (process == nullptr) return;
+  const auto stop = [this, process] {
+    running.stopped_by_cancel = true;
+    status_view->appendPlainText("[Cancel]: stopping minipro");
+    status_view->ensureCursorVisible();
+    process->terminate();
+    QTimer::singleShot(3000, process, [process] {
+      if (process->state() != QProcess::NotRunning) process->kill();
+    });
+  };
+  if (running.kind == AsyncOperation::Read || running.kind == AsyncOperation::Check) {
+    stop();
+    return;
+  }
+  if (running.kind == AsyncOperation::FirmwareUpdate && !running.prompt_answered) {
+    running.prompt_answered = true;
+    process->closeWriteChannel();
+    status_view->appendPlainText(
+        "[Cancel]: answered \"no\" to any question minipro is waiting at. Press Cancel again to "
+        "force it to stop.");
+    status_view->ensureCursorVisible();
+    return;
+  }
+  const bool confirmed = confirmations.device_change(
+      tr("Force-stop minipro?"),
+      tr("minipro may be in the middle of changing the chip or the programmer. Stopping it now "
+         "can leave the chip partly written or the programmer needing recovery."));
+  // The dialog runs an event loop: the operation may have ended (and been deleted) meanwhile.
+  if (confirmed && process == async_process) stop();
 }
 
 void MainWindow::write_device() {
@@ -567,12 +618,8 @@ void MainWindow::build_default_hex_output() {
   format_hex_table_columns();
 }
 
-QString MainWindow::read_file_path() const {
-  return read_dir.filePath("read.bin");
-}
-
 void MainWindow::build_formatted_hex_output() {
-  QFile temp_file(read_file_path());
+  QFile temp_file(read_file);
   if (!temp_file.open(QFile::ReadOnly)) {
     // minipro reported success but left no readable file.
     status_view->appendPlainText("[Error]: could not open the read result: " + temp_file.errorString());

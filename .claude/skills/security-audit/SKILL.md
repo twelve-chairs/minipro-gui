@@ -125,7 +125,7 @@ For every call site:
 grep -rnE 'QFile|temp_file|\.bin|QTemporary|QStandardPaths|remove\(|rename\(' src
 ```
 
-- Reads go to `read_file_path()` inside a private `QTemporaryDir`. Check that
+- Reads go to `read_file` inside a private `QTemporaryDir`. Check that
   this still holds: the folder is created with the window and removed with it,
   and nothing writes to the working directory or another shared location,
   where a user's file could be overwritten or a planted symlink could redirect

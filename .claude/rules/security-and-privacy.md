@@ -66,7 +66,7 @@ Treat everything the app did not compute itself as untrusted:
 ## Files the app writes
 
 - Device reads go to `read.bin` in the window's private (0700) `QTemporaryDir`
-  (`read_file_path()`), which is removed when the app exits. Any other file the
+  (`read_file`), which is removed when the app exits. Any other file the
   app writes goes to a path the user chose or to a private `QTemporaryDir` /
   `QTemporaryFile`. Never write to a fixed name in the working directory or a
   shared folder, where it could overwrite a user's file or a symlink could

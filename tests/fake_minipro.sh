@@ -19,6 +19,7 @@
 #   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
 #   FAKE_MINIPRO_LIST_EMPTY   if set, -l prints no devices
 #   FAKE_MINIPRO_TL866A       if set, -F asks like minipro does for a TL866A/CS (numbered menu)
+#   FAKE_MINIPRO_FW_PROMPT_UNKNOWN  if set, -F asks a question the app doesn't recognise
 #   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (printf %b escapes)
 #   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (printf %b escapes)
 
@@ -115,6 +116,18 @@ while [ $# -gt 0 ]; do
       echo "Reading Code...  0.10Sec  OK" >&2
       ;;
     -F)
+      if [ -n "$FAKE_MINIPRO_FW_PROMPT_UNKNOWN" ]; then
+        # A prompt worded unlike any minipro release, as a future version might ask.
+        printf 'Really flash the programmer? [yes/no] ' >&2
+        read -r reply || reply=""
+        if [ "$reply" != "yes" ]; then
+          echo "Firmware update aborted." >&2
+          exit 1
+        fi
+        echo "Firmware update completed." >&2
+        shift
+        continue
+      fi
       if [ -n "$FAKE_MINIPRO_TL866A" ]; then
         # tl866a.c: versions, then a numbered menu; 1 reflashes the device's own variant.
         echo "Found TL866CS 03.2.85 (0x255)" >&2

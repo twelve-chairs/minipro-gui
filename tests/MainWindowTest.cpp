@@ -79,6 +79,15 @@ class MainWindowTest : public QObject {
   void tl866aFirmwareUpdateWhenConfirmed();
   void tl866aFirmwareUpdateWhenDeclined();
 
+  // Cancelling a running operation
+  void cancelIsOnlyEnabledWhileRunning();
+  void cancelStopsARead();
+  void cancelAnswersAnUnknownPrompt();
+  void cancelDuringWriteAsksBeforeStopping();
+  void cancelWhenOperationEndsDuringDialogIsSafe();
+  void cancelDuringFirmwareFlashAsksBeforeStopping();
+  void cancelHardwareCheckAsks();
+
   // Confirmations before changing the chip
   void writeAsksAndCanBeCancelled();
   void eraseAsksAndCanBeCancelled();
@@ -127,6 +136,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_CRLF");
   qunsetenv("FAKE_MINIPRO_LIST_EMPTY");
   qunsetenv("FAKE_MINIPRO_TL866A");
+  qunsetenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
   qunsetenv("FAKE_MINIPRO_INFO_TEXT");
   MainWindow::sync_timeout_ms = 10000;
@@ -372,7 +382,7 @@ void MainWindowTest::readDeviceFillsHexView() {
   QCOMPARE(model.index(1, 15).data().toString(), QString("0F"));
   QCOMPARE(model.index(1, 16).data().toString(), QString("................"));
   QCOMPARE(model.headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("000010"));
-  const QString read = mw->read_file_path();
+  const QString read = mw->read_file;
   QVERIFY(loggedCalls().contains("-p AT28C256 -r " + read));
   QVERIFY(mw->status_view->toPlainText().contains("[Input]: minipro -p AT28C256 -r " + read));
 }
@@ -385,7 +395,7 @@ void MainWindowTest::readDevicePassesOnlyOptionFlags() {
   checkAll({mw->options.skip_verify, mw->actions.blank_check, mw->actions.erase, mw->actions.hardware_check});
   mw->read_device();
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("00"));
-  QVERIFY(loggedCalls().contains("-p W27C512 -r " + mw->read_file_path() + " --skip_verify"));
+  QVERIFY(loggedCalls().contains("-p W27C512 -r " + mw->read_file + " --skip_verify"));
 }
 
 void MainWindowTest::failedReadRestoresPlaceholder() {
@@ -468,7 +478,7 @@ void MainWindowTest::readWithNoFileReportsError() {
 void MainWindowTest::largeImageLoadsQuickly() {
   // Regression: loading a 16 MiB image (a million rows) took over 10 s and more than 1 GB.
   auto mw = makeWindow();
-  QFile image(mw->read_file_path());
+  QFile image(mw->read_file);
   QVERIFY(image.open(QFile::WriteOnly));
   image.write(QByteArray(16 * 1024 * 1024, 'Z'));
   image.close();
@@ -489,7 +499,7 @@ void MainWindowTest::writeDoesNotLoadPreviousRead() {
   readFfRow(*mw);
   mw->write_file_to_device("/images/fw.bin");
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
-  QVERIFY(QFile::exists(mw->read_file_path()));  // the file was there to (wrongly) load
+  QVERIFY(QFile::exists(mw->read_file));  // the file was there to (wrongly) load
 }
 
 void MainWindowTest::readReportsMiniproFailingToStart() {
@@ -533,7 +543,7 @@ void MainWindowTest::secondOperationIsRefused() {
 
   QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("AB"));
   const QStringList deviceOps = loggedCalls().filter(QRegularExpression("^-(p|F) "));
-  QCOMPARE(deviceOps, QStringList{"-p AT28C256 -r " + mw->read_file_path()});
+  QCOMPARE(deviceOps, QStringList{"-p AT28C256 -r " + mw->read_file});
 }
 
 void MainWindowTest::controlsReenabledAfterFailedStart() {
@@ -777,7 +787,7 @@ void MainWindowTest::readsGoToPrivateFolderNotWorkingDirectory() {
   own.close();
   QVERIFY(QFile::remove("temp.bin"));
 
-  const QFileInfo read(mw->read_file_path());
+  const QFileInfo read(mw->read_file);
   QVERIFY(read.absolutePath() != QDir::currentPath());
   QCOMPARE(QFileInfo(read.absolutePath()).permissions() & (QFile::ReadGroup | QFile::ReadOther |
                                                            QFile::WriteGroup | QFile::WriteOther),
@@ -960,6 +970,161 @@ void MainWindowTest::tl866aFirmwareUpdateWhenDeclined() {
   QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
   QVERIFY(!mw->status_view->toPlainText().contains("Reflashing"));
   QVERIFY(mw->buttons.update->isEnabled());
+}
+
+void MainWindowTest::cancelIsOnlyEnabledWhileRunning() {
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  auto mw = makeWindow();
+  QVERIFY(!mw->buttons.cancel->isEnabled());
+  mw->read_device();
+  QVERIFY(mw->buttons.cancel->isEnabled());
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(!mw->buttons.cancel->isEnabled());
+}
+
+void MainWindowTest::cancelStopsARead() {
+  // A read changes nothing on the chip, so one click stops it at once.
+  qputenv("FAKE_MINIPRO_DELAY", "10");
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ff").repeated(16));
+  auto mw = makeWindow();
+  mw->read_device();
+  QElapsedTimer timer;
+  timer.start();
+  mw->buttons.cancel->click();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
+  QVERIFY(!mw->status_view->toPlainText().contains("[Error]: minipro crashed"));
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+  QVERIFY(mw->buttons.read->isEnabled());
+}
+
+void MainWindowTest::cancelAnswersAnUnknownPrompt() {
+  // A firmware update waiting at a question the app doesn't recognise: Cancel answers it with
+  // end-of-input (minipro treats that as "no") rather than killing minipro.
+  qputenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN", "1");
+  auto mw = makeWindow();
+  int asked = 0;
+  mw->confirmations.firmware_update = [&asked](const QString &) {
+    asked++;
+    return true;
+  };
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("Really flash the programmer?"));
+  QTest::qWait(200);
+  QVERIFY(mw->async_process != nullptr);  // waiting at the prompt
+  mw->buttons.cancel->click();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(asked, 0);
+  // The fake read end-of-input and aborted by itself: it wasn't stopped. Its own exit code is
+  // reported, not "[Cancelled]".
+  QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
+  QVERIFY(!mw->status_view->toPlainText().contains("[Cancel]: stopping minipro"));
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: minipro exited with code 1"));
+  QVERIFY(!mw->status_view->toPlainText().contains("Firmware update completed."));
+}
+
+void MainWindowTest::cancelDuringWriteAsksBeforeStopping() {
+  // A write's input is already closed, so Cancel can only stop minipro, and that needs a
+  // confirmed warning every time.
+  qputenv("FAKE_MINIPRO_DELAY", "10");
+  auto mw = makeWindow();
+  mw->targets.device->setCurrentText("AT28C256");
+  QList<bool> answers{true, false, true};  // write: yes; first force-stop: no; second: yes
+  QStringList titles;
+  mw->confirmations.device_change = [&answers, &titles](const QString &title, const QString &) {
+    titles << title;
+    return answers.takeFirst();
+  };
+  mw->write_file_to_device("/images/fw.bin");
+  QVERIFY(mw->async_process != nullptr);
+
+  mw->buttons.cancel->click();  // declined
+  QCOMPARE(titles.size(), 2);
+  QCOMPARE(titles.at(1), QString("Force-stop minipro?"));
+  QTest::qWait(300);
+  QVERIFY(mw->async_process != nullptr);
+  QVERIFY(!mw->status_view->toPlainText().contains("[Cancel]"));
+
+  QElapsedTimer timer;
+  timer.start();
+  mw->buttons.cancel->click();  // confirmed
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancel]: stopping minipro"));
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
+}
+
+void MainWindowTest::cancelWhenOperationEndsDuringDialogIsSafe() {
+  // Regression (code review): if minipro finished while the force-stop dialog was open, Yes
+  // called kill() on the deleted process.
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  auto mw = makeWindow();
+  mw->targets.device->setCurrentText("AT28C256");
+  int asked = 0;
+  mw->confirmations.device_change = [&asked, &mw](const QString &, const QString &) {
+    if (++asked == 1) return true;  // the write itself
+    // Keep the "dialog" open until the write has finished, then answer Yes.
+    QElapsedTimer waited;
+    waited.start();
+    while (mw->async_process != nullptr && waited.elapsed() < 5000) QTest::qWait(50);
+    return true;
+  };
+  mw->write_file_to_device("/images/fw.bin");
+  mw->buttons.cancel->click();
+  QCOMPARE(asked, 2);
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(!mw->status_view->toPlainText().contains("[Cancel]: stopping minipro"));
+  QVERIFY(!mw->status_view->toPlainText().contains("[Cancelled]"));  // it finished normally
+}
+
+void MainWindowTest::cancelDuringFirmwareFlashAsksBeforeStopping() {
+  // Once the user has confirmed the update, minipro may be flashing: Cancel must ask.
+  qputenv("FAKE_MINIPRO_DELAY", "10");
+  auto mw = makeWindow();
+  mw->confirmations.firmware_update = [](const QString &) { return true; };
+  int asked = 0;
+  bool stop = false;
+  mw->confirmations.device_change = [&asked, &stop](const QString &, const QString &) {
+    asked++;
+    return stop;
+  };
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Input]: y"));
+  mw->buttons.cancel->click();
+  QCOMPARE(asked, 1);
+  QTest::qWait(300);
+  QVERIFY(mw->async_process != nullptr);
+
+  stop = true;  // confirm the force-stop this time
+  mw->buttons.cancel->click();
+  QCOMPARE(asked, 2);
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
+}
+
+void MainWindowTest::cancelHardwareCheckAsks() {
+  // A hardware check drives the programmer's pins, so it isn't stopped without asking.
+  qputenv("FAKE_MINIPRO_DELAY", "10");
+  auto mw = makeWindow();
+  int asked = 0;
+  bool stop = false;
+  mw->confirmations.device_change = [&asked, &stop](const QString &, const QString &) {
+    asked++;
+    return stop;
+  };
+  mw->actions.hardware_check->setChecked(true);
+  mw->run_command();
+  mw->buttons.cancel->click();
+  QCOMPARE(asked, 1);
+  QTest::qWait(300);
+  QVERIFY(mw->async_process != nullptr);
+
+  stop = true;  // confirm the force-stop this time
+  mw->buttons.cancel->click();
+  QCOMPARE(asked, 2);
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
 }
 
 QTEST_MAIN(MainWindowTest)

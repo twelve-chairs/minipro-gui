@@ -47,6 +47,7 @@ class MainWindow : public QMainWindow {
   void read_device();
   void write_device();
   void update_firmware();
+  void cancel_operation();
 
  private:
   // The top-level widget that holds the whole UI (MainWindow itself is never shown).
@@ -57,7 +58,7 @@ class MainWindow : public QMainWindow {
   // removed on exit. Never the working directory: a user's own file there could be overwritten,
   // a planted symlink could redirect the write, and apps started from the Finder run in "/".
   QTemporaryDir read_dir;
-  [[nodiscard]] QString read_file_path() const;
+  const QString read_file = read_dir.filePath("read.bin");
 
   // The one running device operation, or nullptr. Owned by this window; deleted when it ends.
   QProcess *async_process = nullptr;
@@ -77,6 +78,7 @@ class MainWindow : public QMainWindow {
     QPushButton *write = nullptr;
     QPushButton *read = nullptr;
     QPushButton *update = nullptr;
+    QPushButton *cancel = nullptr;  // stops the running operation; see the constructor
   };
   DeviceButtons buttons;
   struct DeviceInfoFields {
@@ -124,8 +126,7 @@ class MainWindow : public QMainWindow {
   static int sync_timeout_ms;
   static QString run_process(QPlainTextEdit &, const QStringList &, const QString &);
   // What the running async process is doing, so its result is handled correctly.
-  enum class AsyncOperation { Read, Write, FirmwareUpdate, Erase, Check };
-  AsyncOperation async_operation = AsyncOperation::Read;
+  enum class AsyncOperation { Read, Write, FirmwareUpdate, Erase, Check, HardwareCheck };
 
   void run_async_process(const QStringList &, AsyncOperation);
 
@@ -138,12 +139,16 @@ class MainWindow : public QMainWindow {
     std::function<bool(const QString &, const QString &)> device_change;
   };
   Confirmations confirmations;
-  // minipro's output during a firmware update, until its y/n prompt has been answered.
-  struct FirmwarePrompt {
-    QString output;
-    bool answered = false;
+  // State of the running operation; reset by run_async_process().
+  struct RunningOperation {
+    AsyncOperation kind = AsyncOperation::Read;
+    // A firmware update's output, until its prompt has been answered (or Cancel answered it).
+    QString prompt_output;
+    bool prompt_answered = false;
+    // Cancel stopped minipro, so its exit is reported as cancelled rather than as an error.
+    bool stopped_by_cancel = false;
   };
-  FirmwarePrompt firmware_prompt;
+  RunningOperation running;
   void answer_firmware_prompt_if_asked(const QString &new_output);
   [[nodiscard]] bool refuse_if_operation_running() const;
   [[nodiscard]] bool device_selected() const;
