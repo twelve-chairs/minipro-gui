@@ -55,7 +55,7 @@ Treat everything the app did not compute itself as untrusted:
   range or loop forever on unexpected text: empty output, a missing field, a
   very long line, or escape sequences other than `\e[K`. When parsing fails,
   show the raw output in the Output pane and keep going.
-- **Files read from disk** (`temp.bin`, files chosen for writing). Check that
+- **Files read from disk** (the read result, files chosen for writing). Check that
   `QFile::open` succeeds and handle failure. Handle any size: empty, under one
   row, and multi-megabyte. A malformed file shows an error; it never crashes
   the app.
@@ -65,10 +65,12 @@ Treat everything the app did not compute itself as untrusted:
 
 ## Files the app writes
 
-- Device reads go to `temp.bin` in the current working directory. Don't widen
-  this. New file writes go to a path the user chose or to a `QTemporaryFile` /
-  `QStandardPaths` location, never to a fixed name in a shared directory where
-  a symlink could redirect them.
+- Device reads go to `read.bin` in the window's private (0700) `QTemporaryDir`
+  (`read_file_path()`), which is removed when the app exits. Any other file the
+  app writes goes to a path the user chose or to a private `QTemporaryDir` /
+  `QTemporaryFile`. Never write to a fixed name in the working directory or a
+  shared folder, where it could overwrite a user's file or a symlink could
+  redirect it.
 - Never delete or overwrite a file the user didn't choose for that operation.
 
 ## No network, no tracking
@@ -85,7 +87,7 @@ change for the user to decide, not something to slip into a code review:
 - The runtime dependencies are Qt 6 (Core, Gui, Widgets) and the `minipro` CLI,
   both installed by the user. Adding another one needs a reason in the commit
   message.
-- GitHub Actions run with least-privilege `permissions:`, never use
-  `pull_request_target` to check out PR code, and never echo secrets. New
-  actions are pinned to a commit SHA. The existing `actions/checkout@v4` tags
-  are a known gap for `/security-audit` to report.
+- GitHub Actions run with least-privilege `permissions:` (the workflows set
+  `contents: read`), never use `pull_request_target` to check out PR code, and
+  never echo secrets. Every action is pinned to a commit SHA, with its version
+  in a comment (`actions/checkout@<sha> # v4.4.0`).

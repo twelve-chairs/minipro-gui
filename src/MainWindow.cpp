@@ -1,55 +1,64 @@
 #include "MainWindow.h"
+#include <QMessageBox>
+
+namespace {
+// minipro's confirmation prompt for -F (tl866iiplus.c, t48.c, t56.c).
+const QString firmware_prompt_text = "Do you want to continue with firmware update?";
+// The "erase to end of line" terminal code minipro prints with its progress output.
+const QString erase_to_end_of_line = QString(QChar(0x1B)) + "[K";
+}  // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   initializer();
+  auto *layout = new QGridLayout(window.get());
 
   auto *groupBox = new QGroupBox(tr("Targets"));
   groupBox->setAlignment(Qt::AlignTop);
   auto *vbox = new QGridLayout;
-  vbox->addWidget(combobox_programmer, 0, 0, Qt::AlignTop);
-  connect(combobox_programmer, SIGNAL (highlighted(int)), this, SLOT (check_for_programmer()));
-  vbox->addWidget(button_update, 0, 1);
-  connect(button_update, SIGNAL (released()), this, SLOT (update_firmware()));
-  vbox->addWidget(combobox_device, 1, 0, 1, 0);
-  connect(combobox_device, SIGNAL (currentTextChanged(QString)), this, SLOT (select_device(QString)));
+  vbox->addWidget(targets.programmer, 0, 0, Qt::AlignTop);
+  connect(targets.programmer, SIGNAL (highlighted(int)), this, SLOT (check_for_programmer()));
+  vbox->addWidget(buttons.update, 0, 1);
+  connect(buttons.update, SIGNAL (released()), this, SLOT (update_firmware()));
+  vbox->addWidget(targets.device, 1, 0, 1, 0);
+  connect(targets.device, SIGNAL (currentTextChanged(QString)), this, SLOT (select_device(QString)));
   groupBox->setLayout(vbox);
   layout->addWidget(groupBox, 0, 0);
 
   auto *groupBox3 = new QGroupBox(tr("Actions"));
   groupBox3->setAlignment(Qt::AlignTop);
   auto *vbox3 = new QGridLayout;
-  vbox3->addWidget(pin_check, 0, 0, Qt::AlignTop);
-  vbox3->addWidget(blank_check, 0, 1);
-  vbox3->addWidget(erase_device, 1, 0, Qt::AlignTop);
-  vbox3->addWidget(hardware_check, 1, 1);
-  vbox3->addWidget(button_run_command, 2, 0, 1, 0);
-  connect(button_run_command, SIGNAL (released()), this, SLOT (run_command()));
-  vbox3->addWidget(no_id_error, 4, 0);
-  vbox3->addWidget(skip_id, 5, 0);
-  vbox3->addWidget(no_size_error, 4, 1);
-  vbox3->addWidget(skip_verify, 5, 1);
-  vbox3->addWidget(button_read, 6, 0);
-  connect(button_read, SIGNAL (released()), this, SLOT (read_device()));
-  vbox3->addWidget(button_write, 6, 1);
-  connect(button_write, SIGNAL (released()), this, SLOT (write_device()));
+  vbox3->addWidget(options.pin_check, 0, 0, Qt::AlignTop);
+  vbox3->addWidget(actions.blank_check, 0, 1);
+  vbox3->addWidget(actions.erase, 1, 0, Qt::AlignTop);
+  vbox3->addWidget(actions.hardware_check, 1, 1);
+  vbox3->addWidget(buttons.run_command, 2, 0, 1, 0);
+  connect(buttons.run_command, SIGNAL (released()), this, SLOT (run_command()));
+  vbox3->addWidget(options.no_id_error, 4, 0);
+  vbox3->addWidget(options.skip_id, 5, 0);
+  vbox3->addWidget(options.no_size_error, 4, 1);
+  vbox3->addWidget(options.skip_verify, 5, 1);
+  vbox3->addWidget(buttons.read, 6, 0);
+  connect(buttons.read, SIGNAL (released()), this, SLOT (read_device()));
+  vbox3->addWidget(buttons.write, 6, 1);
+  connect(buttons.write, SIGNAL (released()), this, SLOT (write_device()));
   groupBox3->setLayout(vbox3);
   layout->addWidget(groupBox3, 2, 0);
 
   auto *groupBox4 = new QGroupBox(tr("Device Info"));
   auto *vbox4 = new QGridLayout;
-  vbox4->addWidget(device_name_label, 0, 0);
-  vbox4->addWidget(device_name, 0, 1);
-  vbox4->addWidget(device_memory_label, 1, 0);
-  vbox4->addWidget(device_memory, 1, 1);
-  vbox4->addWidget(device_package_label, 2, 0);
-  vbox4->addWidget(device_package, 2, 1);
+  vbox4->addWidget(new QLabel(tr("Name")), 0, 0);
+  vbox4->addWidget(device_info.name, 0, 1);
+  vbox4->addWidget(new QLabel(tr("Memory")), 1, 0);
+  vbox4->addWidget(device_info.memory, 1, 1);
+  vbox4->addWidget(new QLabel(tr("Package")), 2, 0);
+  vbox4->addWidget(device_info.package, 2, 1);
 
-  vbox4->addWidget(device_protocol_label, 0, 2);
-  vbox4->addWidget(device_protocol, 0, 3);
-  vbox4->addWidget(device_readbuffer_label, 1, 2);
-  vbox4->addWidget(device_readbuffer, 1, 3);
-  vbox4->addWidget(device_writebuffer_label, 2, 2);
-  vbox4->addWidget(device_writebuffer, 2, 3);
+  vbox4->addWidget(new QLabel(tr("Protocol")), 0, 2);
+  vbox4->addWidget(device_info.protocol, 0, 3);
+  vbox4->addWidget(new QLabel(tr("Read Buffer")), 1, 2);
+  vbox4->addWidget(device_info.read_buffer, 1, 3);
+  vbox4->addWidget(new QLabel(tr("Write Buffer")), 2, 2);
+  vbox4->addWidget(device_info.write_buffer, 2, 3);
   groupBox4->setLayout(vbox4);
   layout->addWidget(groupBox4, 0, 1);
 
@@ -80,73 +89,87 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   window->show();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+  // Destroying a running QProcess kills minipro, which could leave a chip half-written or the
+  // programmer mid-update. Let the operation finish first. Its input is already closed, so a
+  // minipro prompt can't make this wait forever.
+  if (async_process != nullptr && async_process->state() != QProcess::NotRunning) {
+    std::cerr << "minipro-gui: waiting for the running minipro operation to finish" << std::endl;
+    // The widgets may already be gone, so don't let finished() reach the slots that update them.
+    async_process->disconnect(this);
+    // If a firmware update is still waiting at its y/n prompt, end-of-input answers "no".
+    async_process->closeWriteChannel();
+    async_process->waitForFinished(-1);
+  }
+}
 
 void MainWindow::initializer() {
+  confirmations.firmware_update = [this](const QString &minipro_output) {
+    return QMessageBox::question(window.get(), tr("Update programmer firmware?"),
+                                 tr("minipro is ready to update the programmer's firmware:\n\n%1\n\n"
+                                    "Don't unplug the programmer until the update has finished.")
+                                     .arg(minipro_output.trimmed()),
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+  };
+  confirmations.device_change = [this](const QString &title, const QString &text) {
+    return QMessageBox::warning(window.get(), title, text, QMessageBox::Yes | QMessageBox::No,
+                                QMessageBox::No) == QMessageBox::Yes;
+  };
   minipro_found = false;
   programmer_found = false;
 
-  window = new QWidget;
+  window = std::make_unique<QWidget>();
   window->setWindowTitle("minipro CLI not found!");
   window->resize(1000, 600);
   window->setMinimumSize(800, 480);
 
-  layout = new QGridLayout(window);
+  targets.programmer = new QComboBox();
+  targets.device = new QComboBox();
 
-  combobox_programmer = new QComboBox();
-  combobox_device = new QComboBox();
+  buttons.run_command = new QPushButton("Run Command");
+  buttons.write = new QPushButton("Write to Device");
+  buttons.read = new QPushButton("Read from Device");
+  buttons.update = new QPushButton("Update Firmware");
 
-  button_run_command = new QPushButton("Run Command");
-  button_write = new QPushButton("Write to Device");
-  button_read = new QPushButton("Read from Device");
-  button_update = new QPushButton("Update Firmware");
+  options.no_id_error = new QCheckBox("Ignore ID Error");
+  options.skip_id = new QCheckBox("Skip ID Check");
+  options.no_size_error = new QCheckBox("Ignore Size Error");
+  options.skip_verify = new QCheckBox("Skip Verification");
+  options.pin_check = new QCheckBox("Pin Check");
+  actions.blank_check = new QCheckBox("Blank Check");
+  actions.erase = new QCheckBox("Erase Device");
+  actions.hardware_check = new QCheckBox("Hardware Check");
 
-  no_id_error = new QCheckBox("Ignore ID Error");
-  skip_id = new QCheckBox("Skip ID Check");
-  no_size_error = new QCheckBox("Ignore Size Error");
-  skip_verify = new QCheckBox("Skip Verification");
-  pin_check = new QCheckBox("Pin Check");
-  blank_check = new QCheckBox("Blank Check");
-  erase_device = new QCheckBox("Erase Device");
-  hardware_check = new QCheckBox("Hardware Check");
+  device_info.name = new QLineEdit();
+  device_info.name->setReadOnly(true);
+  device_info.memory = new QLineEdit();
+  device_info.memory->setReadOnly(true);
+  device_info.package = new QLineEdit();
+  device_info.package->setReadOnly(true);
+  device_info.protocol = new QLineEdit();
+  device_info.protocol->setReadOnly(true);
+  device_info.read_buffer = new QLineEdit();
+  device_info.read_buffer->setReadOnly(true);
+  device_info.write_buffer = new QLineEdit();
+  device_info.write_buffer->setReadOnly(true);
 
-  device_name_label = new QLabel("Name");
-  device_name = new QLineEdit();
-  device_name->setReadOnly(true);
-  device_memory_label = new QLabel("Memory");
-  device_memory = new QLineEdit();
-  device_memory->setReadOnly(true);
-  device_package_label = new QLabel("Package");
-  device_package = new QLineEdit();
-  device_package->setReadOnly(true);
-  device_protocol_label = new QLabel("Protocol");
-  device_protocol = new QLineEdit();
-  device_protocol->setReadOnly(true);
-  device_readbuffer_label = new QLabel("Read Buffer");
-  device_readbuffer = new QLineEdit();
-  device_readbuffer->setReadOnly(true);
-  device_writebuffer_label = new QLabel("Write Buffer");
-  device_writebuffer = new QLineEdit();
-  device_writebuffer->setReadOnly(true);
+  hexTableView = new QTableView(window.get());
+  status_view = new QPlainTextEdit(window.get());
 
-  hexTableView = new QTableView(window);
-  status_view = new QPlainTextEdit(window);
-
-  monospace_font.setFamily("Courier New");
+  QFont monospace_font("Courier New");
   monospace_font.setStyleHint(QFont::Monospace);
   status_view->setFont(monospace_font);
 }
 
-void MainWindow::run_async_process(QStringList &process_arguments,
-                                   const QString &type = "stderr") {
+void MainWindow::run_async_process(const QStringList &process_arguments,
+                                   AsyncOperation operation,
+                                   const QString &type) {
+  if (refuse_if_operation_running()) return;
   QString process_arguments_string = "";
-  async_process = new QProcess();
+  async_operation = operation;
+  async_process = new QProcess(this);
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
-  }
-  for (auto const &each : parse_checkboxes()) {
-    process_arguments_string += each + " ";
-    process_arguments.append(each);
   }
 
   status_view->appendPlainText("[Input]: minipro " + process_arguments_string);
@@ -158,67 +181,149 @@ void MainWindow::run_async_process(QStringList &process_arguments,
   connect(async_process,
           SIGNAL(finished(int,QProcess::ExitStatus)),
           this,
-          SLOT(read_device_output(int,QProcess::ExitStatus)));
+          SLOT(async_process_finished(int,QProcess::ExitStatus)));
+  connect(async_process,
+          SIGNAL(errorOccurred(QProcess::ProcessError)),
+          this,
+          SLOT(async_process_error(QProcess::ProcessError)));
 
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
+  set_device_operation_running(true);
+  firmware_prompt.output.clear();
+  firmware_prompt.answered = false;
   async_process->start("minipro", process_arguments);
+  // minipro asks some questions on stdin. A firmware update's y/n prompt is answered from the
+  // GUI (answer_firmware_prompt_if_asked). Nothing answers the others, such as which database to
+  // use without a programmer, so give them end-of-input: they treat it as "no" and exit.
+  if (operation != AsyncOperation::FirmwareUpdate) {
+    async_process->closeWriteChannel();
+  }
 }
 
-void MainWindow::async_process_err_output() const {
-  status_view->appendPlainText(async_process->readAllStandardError().trimmed().replace("\u001B[K", ""));
+void MainWindow::answer_firmware_prompt_if_asked(const QString &new_output) {
+  if (async_operation != AsyncOperation::FirmwareUpdate || firmware_prompt.answered) return;
+  firmware_prompt.output += new_output;
+  if (!firmware_prompt.output.contains(firmware_prompt_text)) return;
+  // Set before asking: the dialog runs an event loop, and more output may arrive meanwhile.
+  firmware_prompt.answered = true;
+  QProcess *process = async_process;
+  const bool go_ahead = confirmations.firmware_update(firmware_prompt.output);
+  if (process != async_process) return;  // the operation ended while the dialog was open
+  status_view->appendPlainText(go_ahead ? "[Input]: y" : "[Input]: n");
+  process->write(go_ahead ? "y\n" : "n\n");
+  process->closeWriteChannel();
+}
+
+// Only one minipro may talk to the programmer at a time. The UI disables every control that
+// starts one while an operation runs; this is the backstop for any path that gets through.
+bool MainWindow::refuse_if_operation_running() const {
+  if (async_process == nullptr) return false;
+  status_view->appendPlainText("[Error]: another minipro operation is still running");
   status_view->ensureCursorVisible();
+  return true;
+}
+
+void MainWindow::set_device_operation_running(bool running) {
+  if (running) {
+    disable_buttons();
+    // Selecting a device or programmer also runs minipro against the programmer.
+    targets.programmer->setDisabled(true);
+    return;
+  }
+  targets.programmer->setDisabled(!minipro_found);
+  if (programmer_found) {
+    enable_buttons();
+  } else {
+    disable_buttons();
+  }
+}
+
+void MainWindow::end_async_process() {
+  async_process->deleteLater();
+  async_process = nullptr;
+  set_device_operation_running(false);
+}
+
+void MainWindow::async_process_err_output() {
+  const QString output = QString::fromLocal8Bit(async_process->readAllStandardError());
+  status_view->appendPlainText(QString(output).trimmed().replace(erase_to_end_of_line, ""));
+  status_view->ensureCursorVisible();
+  answer_firmware_prompt_if_asked(output);
 }
 
 void MainWindow::async_process_std_output() const {
-  status_view->appendPlainText(async_process->readAllStandardOutput().trimmed().replace("\u001B[K", ""));
+  status_view->appendPlainText(
+      QString::fromLocal8Bit(async_process->readAllStandardOutput()).trimmed().replace(erase_to_end_of_line, ""));
   status_view->ensureCursorVisible();
 }
 
-QStringList MainWindow::parse_checkboxes() const {
+// Options modify an operation; they are safe to add to Read, Write and Run Command.
+QStringList MainWindow::parse_option_checkboxes() const {
   QStringList arguments;
-  if (no_id_error->isChecked()) arguments.append("--no_id_error");
-  if (skip_id->isChecked()) arguments.append("--skip_id");
-  if (no_size_error->isChecked()) arguments.append("--no_size_error");
-  if (skip_verify->isChecked()) arguments.append("--skip_verify");
-  if (pin_check->isChecked()) arguments.append("--pin_check");
-  if (blank_check->isChecked()) arguments.append("--blank_check");
-  if (erase_device->isChecked()) arguments.append("--erase");
-  if (hardware_check->isChecked()) arguments.append("--hardware_check");
+  if (options.no_id_error->isChecked()) arguments.append("--no_id_error");
+  if (options.skip_id->isChecked()) arguments.append("--skip_id");
+  if (options.no_size_error->isChecked()) arguments.append("--no_size_error");
+  if (options.skip_verify->isChecked()) arguments.append("--skip_verify");
+  if (options.pin_check->isChecked()) arguments.append("--pin_check");
   return arguments;
 }
 
+// Actions are operations of their own in minipro: --blank_check replaces an earlier -r/-w,
+// and --hardware_check runs as soon as it is parsed. They are only used by Run Command, never
+// added to Read, Write or Update Firmware.
+QStringList MainWindow::parse_action_checkboxes() const {
+  QStringList arguments;
+  if (actions.blank_check->isChecked()) arguments.append("--blank_check");
+  if (actions.erase->isChecked()) arguments.append("--erase");
+  if (actions.hardware_check->isChecked()) arguments.append("--hardware_check");
+  return arguments;
+}
+
+int MainWindow::sync_timeout_ms = 10000;
+
+// Runs a quick query and returns its stdout or stderr. Blocks the UI, so only for commands that
+// finish in well under a second; device operations go through run_async_process().
 QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
                                 const QStringList &process_arguments,
                                 const QString &type = "stderr") {
-  QString output = "";
-
   QString process_arguments_string = "";
-  auto *process = new QProcess();
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
   }
   target_plain_text_edit.appendPlainText("[Input]: minipro " + process_arguments_string);
-  process->start("minipro", process_arguments);
 
-  if (!process->waitForStarted()) {
-    output += "Start Error";
+  QProcess process;
+  process.start("minipro", process_arguments);
+  // Without a programmer, minipro asks "Which database do you want to display?" on stdin.
+  // End-of-input makes it abort instead of blocking until the timeout.
+  process.closeWriteChannel();
+  if (!process.waitForStarted(sync_timeout_ms)) {
+    target_plain_text_edit.appendPlainText("[Error]: could not start minipro: " + process.errorString());
+    target_plain_text_edit.ensureCursorVisible();
+    return {};
   }
-  if (!process->waitForFinished()) {
-    output += "Finished Error";
+  if (!process.waitForFinished(sync_timeout_ms)) {
+    process.kill();
+    process.waitForFinished(1000);
+    target_plain_text_edit.appendPlainText(
+        QString("[Error]: minipro didn't finish within %1 ms and was stopped").arg(sync_timeout_ms));
+    target_plain_text_edit.ensureCursorVisible();
+    return {};
   }
+
+  static const QRegularExpression serial_code(R"(Serial code:.*\n([\s\S]*))");
+  QString output;
   if (type == "stderr") {
-    output += process->readAllStandardError();
-    static QRegularExpression re(R"(Serial code:.*\n([\s\S]*))");
-    if (QRegularExpressionMatch match = re.match(output); match.hasMatch()) {
+    output = process.readAllStandardError();
+    if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
       output = match.captured(1).trimmed();
     }
-    target_plain_text_edit.appendPlainText("[Output]: " + output.replace("\u001B[K", ""));
+    target_plain_text_edit.appendPlainText("[Output]: " + output.replace(erase_to_end_of_line, ""));
   } else if (type == "stdout") {
-    output += process->readAllStandardOutput();
-    static QRegularExpression re(R"(Serial code:.*\n([\s\S]*))");
-    if (QRegularExpressionMatch match = re.match(output); match.hasMatch()) {
-      output = match.captured(1).trimmed().replace("\u001B[K", "");
+    output = process.readAllStandardOutput();
+    if (QRegularExpressionMatch match = serial_code.match(output); match.hasMatch()) {
+      output = match.captured(1).trimmed().replace(erase_to_end_of_line, "");
     }
   }
   target_plain_text_edit.ensureCursorVisible();
@@ -228,17 +333,19 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
 void MainWindow::check_for_minipro() {
   QStringList arguments;
   arguments << "--version";
-  auto initial_check_error = run_process(*status_view, arguments);
-  if (initial_check_error.length() > 0 && initial_check_error.contains("minipro version")) {
-    static QRegularExpression re("minipro version.*\\n");
-    QRegularExpressionMatch match = re.match(initial_check_error);
+  const QString output = run_process(*status_view, arguments, "stderr");
+  // minipro's sign-on line, e.g. "minipro version 0.7.4     A free and open TL866 series
+  // programmer". Anchored to the start of a line, and it doesn't need a newline after it.
+  static const QRegularExpression re("^minipro version .*$", QRegularExpression::MultilineOption);
+  if (!output.isEmpty()) {
+    QRegularExpressionMatch match = re.match(output);
     if (match.hasMatch()) {
       window->setWindowTitle(match.captured(0).trimmed());
       minipro_found = true;
       check_for_programmer();
       get_devices();
     } else {
-      combobox_programmer->setDisabled(true);
+      targets.programmer->setDisabled(true);
     }
   }
 }
@@ -248,15 +355,23 @@ void MainWindow::check_for_programmer() {
     QStringList arguments;
     arguments << "--presence_check";
 
-    static QRegularExpression re("(?<=: ).*$");
-    QRegularExpressionMatch match = re.match(run_process(*status_view, arguments).trimmed());
+    // minipro prints one line, "<id>: <name>" (e.g. "tl866ii: TL866II+", "t48: T48"), or
+    // "[No programmer found]" / "[Unknown programmer version]". Accept only that shape: a
+    // lowercase id, so "Error: ..." or "Warning: ..." lines are never taken for a programmer.
+    static const QRegularExpression re(R"(^[a-z][a-z0-9]*: (\S.*)$)",
+                                       QRegularExpression::MultilineOption);
+    QRegularExpressionMatch match = re.match(run_process(*status_view, arguments, "stderr"));
+    // This runs on every highlight, so refill rather than add duplicates. Block signals while
+    // refilling: changing the current item emits highlighted(), which would call this again.
+    const QSignalBlocker blocker(targets.programmer);
+    targets.programmer->clear();
     if (match.hasMatch()) {
-      programmer = match.captured(0);
+      programmer = match.captured(1).trimmed();
       programmer_found = true;
-      combobox_programmer->addItem(programmer);
+      targets.programmer->addItem(programmer);
       enable_buttons();
     } else {
-      combobox_programmer->setPlaceholderText("No programmer found");
+      targets.programmer->setPlaceholderText("No programmer found");
       programmer_found = false;
       disable_buttons();
     }
@@ -264,19 +379,19 @@ void MainWindow::check_for_programmer() {
 }
 
 void MainWindow::disable_buttons() {
-  combobox_device->setDisabled(true);
-  button_run_command->setDisabled(true);
-  button_read->setDisabled(true);
-  button_write->setDisabled(true);
-  button_update->setDisabled(true);
+  targets.device->setDisabled(true);
+  buttons.run_command->setDisabled(true);
+  buttons.read->setDisabled(true);
+  buttons.write->setDisabled(true);
+  buttons.update->setDisabled(true);
 }
 
 void MainWindow::enable_buttons() {
-  combobox_device->setDisabled(false);
-  button_run_command->setDisabled(false);
-  button_read->setDisabled(false);
-  button_write->setDisabled(false);
-  button_update->setDisabled(false);
+  targets.device->setDisabled(false);
+  buttons.run_command->setDisabled(false);
+  buttons.read->setDisabled(false);
+  buttons.write->setDisabled(false);
+  buttons.update->setDisabled(false);
 }
 
 void MainWindow::get_devices() {
@@ -285,90 +400,156 @@ void MainWindow::get_devices() {
     arguments << "-l";
 
     devices_list.clear();
-    devices_list << run_process(*status_view, arguments, "stdout").split("\n", Qt::SkipEmptyParts);
+    static const QRegularExpression line_break(R"(\r?\n)");
+    for (const QString &line : run_process(*status_view, arguments, "stdout").split(line_break)) {
+      // A stray \r or space would become part of the name passed to minipro -p.
+      if (const QString name = line.trimmed(); !name.isEmpty()) devices_list << name;
+    }
     devices_list.sort();
     devices_list.removeDuplicates();
 
-    combobox_device->addItems(devices_list);
+    targets.device->addItems(devices_list);
   }
 }
+
+namespace {
+// The value of a "Field: value" line in minipro -d output, or an empty string.
+QString device_field(const QString &info, const QString &field) {
+  const QRegularExpression re("^" + QRegularExpression::escape(field) + R"(: (.*)$)",
+                              QRegularExpression::MultilineOption);
+  return re.match(info).captured(1).trimmed();
+}
+}  // namespace
 
 void MainWindow::select_device(const QString &selected_device) {
   if (minipro_found && selected_device != "") {
     device = selected_device;
+    // Clear first: if -d fails, the previous device's details must not stay next to the new name.
+    for (QLineEdit *field : {device_info.name, device_info.memory, device_info.package, device_info.protocol,
+                             device_info.read_buffer, device_info.write_buffer}) {
+      field->clear();
+    }
+
     QStringList arguments;
     arguments << "-d" << device;
-
-    static QRegularExpression re;
-    re.setPatternOptions(QRegularExpression::MultilineOption);
-    re.setPattern("Name:([\\s\\S]*)($)");
-    QRegularExpressionMatch filter = re.match(run_process(*status_view, arguments));
-
-    QRegularExpressionMatch match;
-    if (filter.hasMatch()) {
-      re.setPattern("(?<=Name: ).*$");
-      match = re.match(filter.captured(0));
-      device_name->setText(match.captured(0));
-      re.setPattern("(?<=Memory: ).*$");
-      match = re.match(filter.captured(0));
-      device_memory->setText(match.captured(0));
-      re.setPattern("(?<=Package: ).*$");
-      match = re.match(filter.captured(0));
-      device_package->setText(match.captured(0));
-      re.setPattern("(?<=Protocol: ).*$");
-      match = re.match(filter.captured(0));
-      device_protocol->setText(match.captured(0));
-      re.setPattern("(?<=Read buffer size: ).*$");
-      match = re.match(filter.captured(0));
-      device_readbuffer->setText(match.captured(0));
-      re.setPattern("(?<=Write buffer size: ).*$");
-      match = re.match(filter.captured(0));
-      device_writebuffer->setText(match.captured(0));
-      build_default_hex_output();
+    const QString info = run_process(*status_view, arguments, "stderr");
+    if (device_field(info, "Name").isEmpty()) {
+      status_view->appendPlainText("[Error]: no device information for " + device);
+      status_view->ensureCursorVisible();
+      return;
     }
-  }
-}
-
-void MainWindow::run_command() {
-  if (minipro_found) {
-    QStringList arguments;
-    arguments << "-p" << device;
-    arguments.append(parse_checkboxes());
-    run_process(*status_view, arguments);
-  }
-}
-
-void MainWindow::read_device() {
-  QStringList arguments;
-  arguments << "-p" << device << "-r" << temp_file_name;
-  run_async_process(arguments);
-}
-
-void MainWindow::read_device_output(int code, QProcess::ExitStatus) {
-  hexViewModel.clearHexTable();
-  if (code != 1) {
-    build_formatted_hex_output();
-  } else {
+    device_info.name->setText(device_field(info, "Name"));
+    device_info.memory->setText(device_field(info, "Memory"));
+    device_info.package->setText(device_field(info, "Package"));
+    device_info.protocol->setText(device_field(info, "Protocol"));
+    device_info.read_buffer->setText(device_field(info, "Read buffer size"));
+    device_info.write_buffer->setText(device_field(info, "Write buffer size"));
     build_default_hex_output();
   }
 }
 
-void MainWindow::write_device() {
-  QString fileName = QFileDialog::getOpenFileName(this);
-  if (fileName != "") {
+void MainWindow::run_command() {
+  if (minipro_found && !refuse_if_operation_running()) {
+    const QStringList actions = parse_action_checkboxes();
+    if (actions.size() != 1) {
+      // minipro runs only one action; with several it would silently pick one.
+      status_view->appendPlainText(
+          "[Error]: Run Command needs exactly one of Blank Check, Erase Device or "
+          "Hardware Check to be checked.");
+      status_view->ensureCursorVisible();
+      return;
+    }
+    if (actions.first() == "--erase" &&
+        !confirmations.device_change(tr("Erase %1?").arg(device),
+                               tr("This erases everything on the %1 in the programmer.").arg(device))) {
+      status_view->appendPlainText("[Cancelled]: erase " + device);
+      return;
+    }
     QStringList arguments;
-    arguments << "-p" << device << "-w" << fileName;
-    run_async_process(arguments);
+    arguments << "-p" << device << actions << parse_option_checkboxes();
+    // Asynchronous: an erase or blank check can take minutes on a large chip.
+    run_async_process(arguments, actions.first() == "--erase" ? AsyncOperation::Erase
+                                                              : AsyncOperation::Check);
   }
 }
 
-void MainWindow::update_firmware() {
-  QString fileName = QFileDialog::getOpenFileName(this);
-  if (fileName != "") {
-    QStringList arguments;
-    arguments << "-p" << device << "-F" << fileName;
-    run_async_process(arguments);
+void MainWindow::read_device() {
+  if (refuse_if_operation_running()) return;
+  QStringList arguments;
+  if (!read_dir.isValid()) {
+    status_view->appendPlainText("[Error]: no temporary folder for the read: " + read_dir.errorString());
+    status_view->ensureCursorVisible();
+    return;
   }
+  arguments << "-p" << device << "-r" << read_file_path() << parse_option_checkboxes();
+  // Remove the previous read first, so a read that writes nothing can't show old data.
+  QFile::remove(read_file_path());
+  build_default_hex_output();
+  run_async_process(arguments, AsyncOperation::Read);
+}
+
+void MainWindow::async_process_finished(int code, QProcess::ExitStatus status) {
+  const bool succeeded = status == QProcess::NormalExit && code == 0;
+  if (!succeeded) {
+    status_view->appendPlainText(status == QProcess::CrashExit
+                                     ? QString("[Error]: minipro crashed")
+                                     : QString("[Error]: minipro exited with code %1").arg(code));
+    status_view->ensureCursorVisible();
+  }
+  if (async_operation == AsyncOperation::Read && succeeded) {
+    hexViewModel.clearHexTable();
+    build_formatted_hex_output();
+  } else if (async_operation == AsyncOperation::Check) {
+    // Blank, pin and hardware checks don't change the chip; keep showing the last read.
+  } else {
+    // A failed read has no data to show, and after a write, erase or firmware update the last
+    // read no longer matches the chip.
+    build_default_hex_output();
+  }
+  end_async_process();
+}
+
+void MainWindow::async_process_error(QProcess::ProcessError error) {
+  // FailedToStart never emits finished(), so report it here; other errors are followed by
+  // finished() and reported there.
+  if (error == QProcess::FailedToStart) {
+    status_view->appendPlainText("[Error]: could not start minipro: " + async_process->errorString());
+    status_view->ensureCursorVisible();
+    build_default_hex_output();
+    end_async_process();
+  }
+}
+
+void MainWindow::write_device() {
+  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+    write_file_to_device(fileName);
+  }
+}
+
+void MainWindow::write_file_to_device(const QString &file_name) {
+  if (refuse_if_operation_running()) return;
+  if (!confirmations.device_change(tr("Write to %1?").arg(device),
+                             tr("This overwrites the contents of the %1 in the programmer with\n\n%2")
+                                 .arg(device, QDir::toNativeSeparators(file_name)))) {
+    status_view->appendPlainText("[Cancelled]: write to " + device);
+    return;
+  }
+  QStringList arguments;
+  arguments << "-p" << device << "-w" << file_name << parse_option_checkboxes();
+  run_async_process(arguments, AsyncOperation::Write);
+}
+
+void MainWindow::update_firmware() {
+  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+    update_firmware_from_file(fileName);
+  }
+}
+
+void MainWindow::update_firmware_from_file(const QString &file_name) {
+  // No checkbox flags: minipro handles -F as soon as it is parsed and ignores everything after it.
+  QStringList arguments;
+  arguments << "-F" << file_name;
+  run_async_process(arguments, AsyncOperation::FirmwareUpdate);
 }
 
 void MainWindow::build_default_hex_output() {
@@ -376,27 +557,31 @@ void MainWindow::build_default_hex_output() {
   format_hex_table_columns();
 }
 
-void MainWindow::build_formatted_hex_output() {
-  try {
-    QFile temp_file(temp_file_name);
-    temp_file.open(QFile::ReadOnly);
-    QString temp_file_content = QString::fromUtf8(temp_file.readAll().toHex());
-    temp_file.close();
+QString MainWindow::read_file_path() const {
+  return read_dir.filePath("read.bin");
+}
 
-    hexViewModel.buildHexTable(temp_file_content);
-    format_hex_table_columns();
+void MainWindow::build_formatted_hex_output() {
+  QFile temp_file(read_file_path());
+  if (!temp_file.open(QFile::ReadOnly)) {
+    // minipro reported success but left no readable file.
+    status_view->appendPlainText("[Error]: could not open the read result: " + temp_file.errorString());
+    status_view->ensureCursorVisible();
+    build_default_hex_output();
+    return;
   }
-  catch (const std::exception &e) {
-    status_view->appendPlainText("\n[Error]: " + static_cast<QString>(e.what()));
-  }
+  hexViewModel.loadBytes(temp_file.readAll());
+  format_hex_table_columns();
 }
 
 void MainWindow::format_hex_table_columns() const {
   hexTableView->horizontalHeader()->setStretchLastSection(true);
-  for (int n = 0; n <= hexViewModel.columnCount(); n++) {
+  for (int n = 0; n < hexViewModel.columnCount(); n++) {
     hexTableView->resizeColumnToContents(n);
   }
-  for (int n = 0; n <= hexViewModel.rowCount(); n++) {
-    hexTableView->resizeRowToContents(n);
-  }
+  // Every row has the same height. Sizing each row to its contents takes seconds for a large chip
+  // (a 16 MiB image has a million rows).
+  QHeaderView *rows = hexTableView->verticalHeader();
+  rows->setSectionResizeMode(QHeaderView::Fixed);
+  rows->setDefaultSectionSize(QFontMetrics(status_view->font()).height() + 8);
 }

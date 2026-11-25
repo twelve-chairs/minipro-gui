@@ -38,7 +38,7 @@ setup, architecture, workflow. Link rather than copy.
 Update it when something agents rely on changed: a build or test command, the
 test setup (new test executable, new `FAKE_MINIPRO_*` variable), a new rule or
 skill, a workflow trigger, or an architecture fact it states (for example how
-`minipro` is invoked or where `temp.bin` goes). Re-read the Architecture section
+`minipro` is invoked or where reads are written). Re-read the Architecture section
 against the diff; it goes stale fastest.
 
 ## 4. Clean .claude/settings.json

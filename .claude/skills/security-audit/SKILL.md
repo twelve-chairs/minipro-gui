@@ -116,7 +116,7 @@ For every call site:
   are handled. An unchecked open, a crash or unbounded memory use is
   **Medium**.
 - **Exit status.** Failure, a crash or `FailedToStart` shown as success, or a
-  hex view showing a stale `temp.bin` after a failed read: **Medium**.
+  hex view showing an old read file after a failed read: **Medium**.
 - Tests exist for the malformed cases. A missing test for a parser is **Low**.
 
 ## 5. Files the app writes
@@ -125,11 +125,12 @@ For every call site:
 grep -rnE 'QFile|temp_file|\.bin|QTemporary|QStandardPaths|remove\(|rename\(' src
 ```
 
-- `temp.bin` is written to the current working directory. When the app is
-  started from a shared or world-writable directory, a symlink planted there
-  could redirect the write, and the next read could show attacker-chosen data.
-  Report this as **Low** with that scenario, or higher if the code writes
-  anywhere else.
+- Reads go to `read_file_path()` inside a private `QTemporaryDir`. Check that
+  this still holds: the folder is created with the window and removed with it,
+  and nothing writes to the working directory or another shared location,
+  where a user's file could be overwritten or a planted symlink could redirect
+  the write. A fixed name in a shared directory: **Low**, or higher if a user's
+  file can be overwritten.
 - Any file deleted or overwritten that the user didn't choose: **High**.
 
 ## 6. Network and tracking

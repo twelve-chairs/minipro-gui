@@ -2,8 +2,6 @@ name: Unit Tests
 
 on:
   workflow_dispatch:
-    workflow_run:
-      workflows: [ "Unit Tests" ]
   push:
     branches:
       - 'master'
@@ -19,6 +17,10 @@ on:
   schedule:
     - cron:  '0 0 1 * *'
 
+# Read-only token: these jobs only check out and build.
+permissions:
+  contents: read
+
 env:
   BUILD_TYPE: Debug
 
@@ -26,10 +28,10 @@ jobs:
   Tests:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Build Tests
         shell: bash
         run: |
-          brew install ninja cmake qt minipro
+          brew install ninja cmake qt
           cd tests
           ./run_tests.sh
