@@ -42,6 +42,7 @@
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#define NOMINMAX  // Windows.h would otherwise turn std::min into its min() macro
 #include <Windows.h>
 #endif
 
