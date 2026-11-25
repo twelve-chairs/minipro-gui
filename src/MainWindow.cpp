@@ -398,7 +398,11 @@ void MainWindow::get_devices() {
     arguments << "-l";
 
     devices_list.clear();
-    devices_list << run_process(*status_view, arguments, "stdout").split("\n", Qt::SkipEmptyParts);
+    static const QRegularExpression line_break(R"(\r?\n)");
+    for (const QString &line : run_process(*status_view, arguments, "stdout").split(line_break)) {
+      // A stray \r or space would become part of the name passed to minipro -p.
+      if (const QString name = line.trimmed(); !name.isEmpty()) devices_list << name;
+    }
     devices_list.sort();
     devices_list.removeDuplicates();
 
@@ -406,39 +410,39 @@ void MainWindow::get_devices() {
   }
 }
 
+namespace {
+// The value of a "Field: value" line in minipro -d output, or an empty string.
+QString device_field(const QString &info, const QString &field) {
+  const QRegularExpression re("^" + QRegularExpression::escape(field) + R"(: (.*)$)",
+                              QRegularExpression::MultilineOption);
+  return re.match(info).captured(1).trimmed();
+}
+}  // namespace
+
 void MainWindow::select_device(const QString &selected_device) {
   if (minipro_found && selected_device != "") {
     device = selected_device;
+    // Clear first: if -d fails, the previous device's details must not stay next to the new name.
+    for (QLineEdit *field : {device_name, device_memory, device_package, device_protocol,
+                             device_readbuffer, device_writebuffer}) {
+      field->clear();
+    }
+
     QStringList arguments;
     arguments << "-d" << device;
-
-    static QRegularExpression re;
-    re.setPatternOptions(QRegularExpression::MultilineOption);
-    re.setPattern("Name:([\\s\\S]*)($)");
-    QRegularExpressionMatch filter = re.match(run_process(*status_view, arguments));
-
-    QRegularExpressionMatch match;
-    if (filter.hasMatch()) {
-      re.setPattern("(?<=Name: ).*$");
-      match = re.match(filter.captured(0));
-      device_name->setText(match.captured(0));
-      re.setPattern("(?<=Memory: ).*$");
-      match = re.match(filter.captured(0));
-      device_memory->setText(match.captured(0));
-      re.setPattern("(?<=Package: ).*$");
-      match = re.match(filter.captured(0));
-      device_package->setText(match.captured(0));
-      re.setPattern("(?<=Protocol: ).*$");
-      match = re.match(filter.captured(0));
-      device_protocol->setText(match.captured(0));
-      re.setPattern("(?<=Read buffer size: ).*$");
-      match = re.match(filter.captured(0));
-      device_readbuffer->setText(match.captured(0));
-      re.setPattern("(?<=Write buffer size: ).*$");
-      match = re.match(filter.captured(0));
-      device_writebuffer->setText(match.captured(0));
-      build_default_hex_output();
+    const QString info = run_process(*status_view, arguments, "stderr");
+    if (device_field(info, "Name").isEmpty()) {
+      status_view->appendPlainText("[Error]: no device information for " + device);
+      status_view->ensureCursorVisible();
+      return;
     }
+    device_name->setText(device_field(info, "Name"));
+    device_memory->setText(device_field(info, "Memory"));
+    device_package->setText(device_field(info, "Package"));
+    device_protocol->setText(device_field(info, "Protocol"));
+    device_readbuffer->setText(device_field(info, "Read buffer size"));
+    device_writebuffer->setText(device_field(info, "Write buffer size"));
+    build_default_hex_output();
   }
 }
 

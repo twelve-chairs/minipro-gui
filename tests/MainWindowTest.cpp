@@ -39,6 +39,8 @@ class MainWindowTest : public QObject {
   void deviceListIsSortedAndDeduplicated();
   void selectDeviceFillsDeviceInfo();
   void selectDeviceIgnoresEmptyName();
+  void failedDeviceInfoClearsPreviousDevice();
+  void windowsLineEndingsAreStripped();
 
   // Command construction
   void parseCheckboxesNoneChecked();
@@ -115,6 +117,8 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_PRESENCE");
   qunsetenv("FAKE_MINIPRO_INFO_PROMPT");
   qunsetenv("FAKE_MINIPRO_INFO_SLEEP");
+  qunsetenv("FAKE_MINIPRO_INFO_FAIL");
+  qunsetenv("FAKE_MINIPRO_CRLF");
   MainWindow::sync_timeout_ms = 10000;
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
@@ -712,6 +716,34 @@ void MainWindowTest::closingWindowAtFirmwarePromptAborts() {
   mw.reset();
   QVERIFY2(timer.elapsed() < 3000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
   QVERIFY(!QFile::exists(doneLog));  // the fake exits at the prompt, before the end of the update
+}
+
+void MainWindowTest::failedDeviceInfoClearsPreviousDevice() {
+  // Regression: when -d failed, the previous device's details stayed next to the new name.
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  QCOMPARE(mw->device_memory->text(), QString("32768 Bytes"));
+
+  qputenv("FAKE_MINIPRO_INFO_FAIL", "1");
+  mw->combobox_device->setCurrentText("W27C512");
+  QCOMPARE(mw->device, QString("W27C512"));
+  for (QLineEdit *field : {mw->device_name, mw->device_memory, mw->device_package,
+                           mw->device_protocol, mw->device_readbuffer, mw->device_writebuffer}) {
+    QCOMPARE(field->text(), QString());
+  }
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: no device information for W27C512"));
+}
+
+void MainWindowTest::windowsLineEndingsAreStripped() {
+  // Regression: splitting on \n alone left \r in device names and info fields.
+  qputenv("FAKE_MINIPRO_CRLF", "1");
+  auto mw = makeWindow();
+  const QStringList expected{"27C256", "AT28C256", "W27C512"};
+  QCOMPARE(mw->devices_list, expected);
+  mw->combobox_device->setCurrentText("AT28C256");
+  QVERIFY(loggedCalls().contains("-d AT28C256"));
+  QCOMPARE(mw->device_name->text(), QString("AT28C256"));
+  QCOMPARE(mw->device_writebuffer->text(), QString("128 Bytes"));
 }
 
 QTEST_MAIN(MainWindowTest)

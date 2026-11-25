@@ -15,6 +15,8 @@
 #   FAKE_MINIPRO_INFO_PROMPT  if set, -l and -d ask "Which database...?" on stdin like minipro
 #                             does without a programmer, and abort unless answered
 #   FAKE_MINIPRO_INFO_SLEEP   seconds -l and -d take (default 0)
+#   FAKE_MINIPRO_INFO_FAIL    if set, -d reports an unknown device and exits 1
+#   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
 
 ARGS="$*"
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
@@ -55,10 +57,18 @@ esac
 
 case "$1" in
   -l)
-    printf 'W27C512\nAT28C256\n27C256\nAT28C256\n'
+    if [ -n "$FAKE_MINIPRO_CRLF" ]; then
+      printf 'W27C512\r\nAT28C256\r\n27C256\r\nAT28C256\r\n'
+    else
+      printf 'W27C512\nAT28C256\n27C256\nAT28C256\n'
+    fi
     exit 0
     ;;
   -d)
+    if [ -n "$FAKE_MINIPRO_INFO_FAIL" ]; then
+      echo "Unknown device: $2" >&2
+      exit 1
+    fi
     {
       echo "Found TL866II+ 04.2.132 (0x284)"
       echo "Serial code: ABCDEF0123456789"
@@ -68,7 +78,7 @@ case "$1" in
       echo "Protocol: 0x05"
       echo "Read buffer size: 1024 Bytes"
       echo "Write buffer size: 128 Bytes"
-    } >&2
+    } | if [ -n "$FAKE_MINIPRO_CRLF" ]; then sed 's/$/\r/'; else cat; fi >&2
     exit 0
     ;;
 esac
