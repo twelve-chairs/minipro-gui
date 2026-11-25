@@ -552,7 +552,8 @@ void MainWindow::async_process_error(QProcess::ProcessError error) {
 //   or a firmware update already under way), so stopping it needs a confirmed warning.
 // Stopping sends SIGTERM first, so minipro can clean up if it handles it, then kills it if it is
 // still running after a few seconds. A process that hasn't started running yet is killed at once.
-// On Windows terminate() only posts WM_CLOSE, which console programs ignore, so the kill() does it.
+// On Windows it is always killed at once: terminate() only posts WM_CLOSE, which a console
+// program like minipro ignores, so waiting would only delay the kill().
 void MainWindow::cancel_operation() {
   QProcess *process = async_process;
   if (process == nullptr) return;
@@ -560,6 +561,9 @@ void MainWindow::cancel_operation() {
     running.stopped_by_cancel = true;
     status_view->appendPlainText("[Cancel]: stopping minipro");
     status_view->ensureCursorVisible();
+#ifdef Q_OS_WIN
+    process->kill();
+#else
     if (process->state() == QProcess::Starting) {
       // minipro hasn't started running yet, so there is nothing to clean up. A SIGTERM sent
       // now can reach the child before it has become minipro and be lost, so stop it outright.
@@ -570,6 +574,7 @@ void MainWindow::cancel_operation() {
     QTimer::singleShot(3000, process, [process] {
       if (process->state() != QProcess::NotRunning) process->kill();
     });
+#endif
   };
   if (running.kind == AsyncOperation::Read || running.kind == AsyncOperation::Check) {
     stop();

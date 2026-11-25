@@ -29,6 +29,8 @@ permissions:
 
 env:
   BUILD_TYPE: Debug
+  # Same Qt as the Windows build (windows.yaml).
+  QT_VERSION: 6.10.3
 
 jobs:
   Tests:
@@ -43,3 +45,24 @@ jobs:
           brew install ninja cmake qt
           cd tests
           ./run_tests.sh
+
+  Tests-Windows:
+    name: Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false  # later steps don't use git
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          aqtversion: '==3.3.0'
+          cache: true
+      - name: Build and run tests
+        shell: pwsh
+        run: |
+          # run_tests.sh needs a POSIX shell and Ninja; Visual Studio's generator is multi-config.
+          cmake -A x64 -S tests -B tests/build
+          cmake --build tests/build --config $env:BUILD_TYPE
+          ctest --test-dir tests/build -C $env:BUILD_TYPE --output-on-failure

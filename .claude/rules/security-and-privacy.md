@@ -43,7 +43,7 @@ injection and stop the app damaging hardware by accident.
   only from an explicit user action: a button the user pressed, followed by a
   file they chose. Never start one automatically, on startup, from a signal
   like `highlighted`, or by default.
-- Tests never run the real CLI. They use `tests/fake_minipro.sh` on `PATH`,
+- Tests never run the real CLI. They use the fake `minipro` (`tests/fake_minipro.cpp`) on `PATH`,
   because a real programmer could be connected to the machine running them.
 
 ## Untrusted input
