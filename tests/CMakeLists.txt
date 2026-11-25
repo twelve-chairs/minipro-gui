@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Test Widgets)
 
 qt_standard_project_setup()
+# qt_standard_project_setup() turns on AUTOMOC and AUTOUIC but not AUTORCC (for the .qrc).
+set(CMAKE_AUTORCC ON)
 enable_testing()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
@@ -35,6 +37,7 @@ add_qt_test(mainwindow_test
         ${SRC_DIR}/MainWindow.cpp
         ${SRC_DIR}/HexView.h
         ${SRC_DIR}/HexView.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../minipro-gui.qrc  # the window icon, as in the app
 )
 target_compile_definitions(mainwindow_test PRIVATE
         FAKE_MINIPRO_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/fake_minipro.sh")

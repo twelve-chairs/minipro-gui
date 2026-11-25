@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <!-- Compiled into the app by CMake (AUTORCC). Paths are relative to this file. -->
+    <qresource prefix="/">
+        <file>res/AppIcon.png</file>
+    </qresource>
+</RCC>

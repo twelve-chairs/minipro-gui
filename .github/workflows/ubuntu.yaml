@@ -9,6 +9,8 @@ on:
       - src/**
       - CMakeLists.txt
       - .github/workflows/ubuntu.yaml
+      - minipro-gui.qrc
+      - res/**
   pull_request:
     branches:
       - 'master'
@@ -16,6 +18,8 @@ on:
       - src/**
       - CMakeLists.txt
       - .github/workflows/ubuntu.yaml
+      - minipro-gui.qrc
+      - res/**
   schedule:
     - cron:  '0 0 1 * *'
 

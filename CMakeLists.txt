@@ -19,7 +19,8 @@ find_package(Qt6 COMPONENTS
         Widgets
         REQUIRED)
 
-set(RESOURCE_FILES ${PROJECT_NAME}.qrc)
+# Window icon (":/res/AppIcon.png"), compiled in through AUTORCC.
+set(RESOURCE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.qrc)
 
 file(GLOB H_FILES "src/*.h")
 file(GLOB CPP_FILES "src/*.cpp")
@@ -37,7 +38,7 @@ if (APPLE)
     set(app_icon_macos "${CMAKE_CURRENT_SOURCE_DIR}/res/AppIcon.icns")
     set_source_files_properties(${app_icon_macos} PROPERTIES
             MACOSX_PACKAGE_LOCATION "Resources")
-    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${CPP_FILES} ${H_FILES} ${INCLUDE} ${app_icon_macos})
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${CPP_FILES} ${H_FILES} ${INCLUDE} ${RESOURCE_FILES} ${app_icon_macos})
     set_target_properties(${PROJECT_NAME} PROPERTIES
             MACOSX_BUNDLE TRUE
             XCODE_ATTRIBUTE_CODE_SIGN_STYLE ${XCODE_ATTRIBUTE_CODE_SIGN_STYLE}
@@ -49,7 +50,7 @@ if (APPLE)
     )
 
 else ()
-    add_executable(${PROJECT_NAME} ${CPP_FILES} ${H_FILES} ${INCLUDE})
+    add_executable(${PROJECT_NAME} ${CPP_FILES} ${H_FILES} ${INCLUDE} ${RESOURCE_FILES})
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt::Core

@@ -483,9 +483,13 @@ void MainWindow::run_command() {
     arguments << "-p" << device << chosen_actions << parse_option_checkboxes();
     // Asynchronous: an erase or blank check can take minutes on a large chip.
     const QString &action = chosen_actions.first();
-    run_async_process(arguments, action == "--erase"            ? AsyncOperation::Erase
-                                 : action == "--hardware_check" ? AsyncOperation::HardwareCheck
-                                                                : AsyncOperation::Check);
+    AsyncOperation operation = AsyncOperation::Check;  // blank check
+    if (action == "--erase") {
+      operation = AsyncOperation::Erase;
+    } else if (action == "--hardware_check") {
+      operation = AsyncOperation::HardwareCheck;
+    }
+    run_async_process(arguments, operation);
   }
 }
 
