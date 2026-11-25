@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTableView>
@@ -101,8 +102,6 @@ int main(int argc, char *argv[]) {
     return fail("the device list, the Read button or the hex view is missing");
   }
 
-  // Wide enough for the hex view's ASCII column without a scrollbar.
-  window->resize(1100, 660);
   device->setCurrentText("AT28C256");
   if (!waitFor([read] { return read->isEnabled(); }, 5000)) return fail("Read never became enabled");
   read->click();
@@ -112,6 +111,11 @@ int main(int argc, char *argv[]) {
       },
       10000);
   if (!loaded) return fail("the read didn't fill the hex view");
+  // At the app's default size, a whole hex row (bytes and ASCII) must fit. Checked here because
+  // this runs on the native platform; the tests' offscreen fonts are narrower and can't show it.
+  if (hex_view->horizontalScrollBar()->isVisible()) {
+    return fail("at the default window size the hex view needs a horizontal scrollbar");
+  }
   // QTemporaryDir's random suffix would change the image on every run; show the pattern instead.
   if (auto *output_pane = window->findChild<QPlainTextEdit *>(); output_pane != nullptr) {
     static const QRegularExpression random_suffix("(minipro-gui-)[A-Za-z0-9]{6}");

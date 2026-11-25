@@ -135,7 +135,7 @@ void MainWindow::initializer() {
 
   window = std::make_unique<QWidget>();
   window->setWindowTitle("minipro CLI not found!");
-  window->resize(1000, 600);
+  window->resize(1100, 660);  // wide enough for the hex view's ASCII column on macOS
   window->setMinimumSize(800, 480);
 
   targets.programmer = new QComboBox(window.get());
