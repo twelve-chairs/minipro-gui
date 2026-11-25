@@ -80,7 +80,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   window->show();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+  // Destroying a running QProcess kills minipro, which could leave a chip half-written or the
+  // programmer mid-update. Let the operation finish first. Its input is already closed, so a
+  // minipro prompt can't make this wait forever.
+  if (async_process != nullptr && async_process->state() != QProcess::NotRunning) {
+    std::cerr << "minipro-gui: waiting for the running minipro operation to finish" << std::endl;
+    // The widgets may already be gone, so don't let finished() reach the slots that update them.
+    async_process->disconnect(this);
+    async_process->waitForFinished(-1);
+  }
+}
 
 void MainWindow::initializer() {
   minipro_found = false;
@@ -140,9 +150,10 @@ void MainWindow::initializer() {
 void MainWindow::run_async_process(const QStringList &process_arguments,
                                    AsyncOperation operation,
                                    const QString &type) {
+  if (refuse_if_operation_running()) return;
   QString process_arguments_string = "";
   async_operation = operation;
-  async_process = new QProcess();
+  async_process = new QProcess(this);
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
   }
@@ -164,7 +175,42 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
 
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
+  set_device_operation_running(true);
   async_process->start("minipro", process_arguments);
+  // minipro asks some questions on stdin (firmware update confirmation, which database to use
+  // without a programmer). Nothing will ever answer them here, so give it end-of-input: its
+  // prompts treat that as "no" and exit instead of waiting forever.
+  async_process->closeWriteChannel();
+}
+
+// Only one minipro may talk to the programmer at a time. The UI disables every control that
+// starts one while an operation runs; this is the backstop for any path that gets through.
+bool MainWindow::refuse_if_operation_running() const {
+  if (async_process == nullptr) return false;
+  status_view->appendPlainText("[Error]: another minipro operation is still running");
+  status_view->ensureCursorVisible();
+  return true;
+}
+
+void MainWindow::set_device_operation_running(bool running) {
+  if (running) {
+    disable_buttons();
+    // Selecting a device or programmer also runs minipro against the programmer.
+    combobox_programmer->setDisabled(true);
+    return;
+  }
+  combobox_programmer->setDisabled(!minipro_found);
+  if (programmer_found) {
+    enable_buttons();
+  } else {
+    disable_buttons();
+  }
+}
+
+void MainWindow::end_async_process() {
+  async_process->deleteLater();
+  async_process = nullptr;
+  set_device_operation_running(false);
 }
 
 void MainWindow::async_process_err_output() const {
@@ -341,7 +387,7 @@ void MainWindow::select_device(const QString &selected_device) {
 }
 
 void MainWindow::run_command() {
-  if (minipro_found) {
+  if (minipro_found && !refuse_if_operation_running()) {
     const QStringList actions = parse_action_checkboxes();
     if (actions.size() != 1) {
       // minipro runs only one action; with several it would silently pick one.
@@ -358,6 +404,7 @@ void MainWindow::run_command() {
 }
 
 void MainWindow::read_device() {
+  if (refuse_if_operation_running()) return;
   QStringList arguments;
   arguments << "-p" << device << "-r" << temp_file_name << parse_option_checkboxes();
   // Remove the previous read first, so a read that writes nothing can't show old data.
@@ -382,6 +429,7 @@ void MainWindow::async_process_finished(int code, QProcess::ExitStatus status) {
     // no longer matches the chip.
     build_default_hex_output();
   }
+  end_async_process();
 }
 
 void MainWindow::async_process_error(QProcess::ProcessError error) {
@@ -391,6 +439,7 @@ void MainWindow::async_process_error(QProcess::ProcessError error) {
     status_view->appendPlainText("[Error]: could not start minipro: " + async_process->errorString());
     status_view->ensureCursorVisible();
     build_default_hex_output();
+    end_async_process();
   }
 }
 

@@ -57,7 +57,8 @@ class MainWindow : public QMainWindow {
 
   const QString temp_file_name = "temp.bin";
 
-  QProcess *async_process;
+  // The one running device operation, or nullptr. Owned by this window; deleted when it ends.
+  QProcess *async_process = nullptr;
 
   QPushButton *button_run_command;
   QPushButton *button_write;
@@ -120,6 +121,9 @@ class MainWindow : public QMainWindow {
   AsyncOperation async_operation = AsyncOperation::Read;
 
   void run_async_process(const QStringList &, AsyncOperation, const QString & = "stderr");
+  [[nodiscard]] bool refuse_if_operation_running() const;
+  void set_device_operation_running(bool);
+  void end_async_process();
   void build_default_hex_output();
   void build_formatted_hex_output();
 };

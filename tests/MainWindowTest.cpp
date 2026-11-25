@@ -55,6 +55,14 @@ class MainWindowTest : public QObject {
   void writeDoesNotLoadPreviousRead();
   void readReportsMiniproFailingToStart();
 
+  // One device operation at a time
+  void controlsDisabledWhileOperationRuns();
+  void secondOperationIsRefused();
+  void controlsReenabledAfterFailedStart();
+  void finishedProcessesAreDeleted();
+  void closingWindowLetsRunningWriteFinish();
+  void firmwarePromptDoesNotHang();
+
  private:
   using WindowPtr = std::unique_ptr<MainWindow, MainWindowDeleter>;
   WindowPtr makeWindow();
@@ -94,6 +102,8 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
   qunsetenv("FAKE_MINIPRO_CRASH");
+  qunsetenv("FAKE_MINIPRO_DELAY");
+  qunsetenv("FAKE_MINIPRO_DONE_LOG");
   QFile::remove(logPath);
   QFile::remove("temp.bin");
 }
@@ -286,6 +296,7 @@ void MainWindowTest::writePassesOnlyOptionFlags() {
   checkAll({mw->blank_check, mw->erase_device, mw->hardware_check, mw->no_size_error});
   mw->write_file_to_device("/images/fw.bin");
   QTRY_VERIFY(loggedCalls().contains("-p AT28C256 -w /images/fw.bin --no_size_error"));
+  QTRY_VERIFY(mw->async_process == nullptr);
 }
 
 void MainWindowTest::updateFirmwarePassesNoCheckboxFlags() {
@@ -294,6 +305,7 @@ void MainWindowTest::updateFirmwarePassesNoCheckboxFlags() {
             mw->blank_check, mw->erase_device, mw->hardware_check});
   mw->update_firmware_from_file("/images/update.dat");
   QTRY_VERIFY(loggedCalls().contains("-F /images/update.dat"));
+  QTRY_VERIFY(mw->async_process == nullptr);
 }
 
 void MainWindowTest::runProcessEchoesInputAndStripsEscapes() {
@@ -346,7 +358,9 @@ void MainWindowTest::failedReadRestoresPlaceholder() {
 
   qputenv("FAKE_MINIPRO_READ_EXIT", "1");
   mw->read_device();
-  QTRY_COMPARE(mw->hexViewModel.rowCount(), 8);
+  // read_device() resets the view as it starts, so wait for the result, not just the placeholder.
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: minipro exited with code 1"));
+  QCOMPARE(mw->hexViewModel.rowCount(), 8);
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
 
@@ -417,6 +431,89 @@ void MainWindowTest::readReportsMiniproFailingToStart() {
   mw->read_device();
   QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro"));
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+}
+
+void MainWindowTest::controlsDisabledWhileOperationRuns() {
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  auto mw = makeWindow();
+  mw->read_device();
+  for (QWidget *control : std::initializer_list<QWidget *>{
+           mw->button_read, mw->button_write, mw->button_update, mw->button_run_command,
+           mw->combobox_device, mw->combobox_programmer}) {
+    QVERIFY2(!control->isEnabled(), qPrintable(control->metaObject()->className()));
+  }
+  QTRY_VERIFY(mw->button_read->isEnabled());
+  QVERIFY(mw->button_write->isEnabled());
+  QVERIFY(mw->button_update->isEnabled());
+  QVERIFY(mw->button_run_command->isEnabled());
+  QVERIFY(mw->combobox_device->isEnabled());
+  QVERIFY(mw->combobox_programmer->isEnabled());
+}
+
+void MainWindowTest::secondOperationIsRefused() {
+  // Regression: a second click started another minipro on the same programmer mid-operation.
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ab").repeated(16));
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  mw->read_device();
+  mw->write_file_to_device("/images/fw.bin");
+  mw->update_firmware_from_file("/images/update.dat");
+  mw->read_device();
+  mw->erase_device->setChecked(true);
+  mw->run_command();
+  QCOMPARE(mw->status_view->toPlainText().count("[Error]: another minipro operation is still running"), 4);
+
+  QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("AB"));
+  const QStringList deviceOps = loggedCalls().filter(QRegularExpression("^-(p|F) "));
+  QCOMPARE(deviceOps, QStringList{"-p AT28C256 -r temp.bin"});
+}
+
+void MainWindowTest::controlsReenabledAfterFailedStart() {
+  auto mw = makeWindow();
+  qputenv("PATH", emptyBinDir.toLocal8Bit());
+  mw->read_device();
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro"));
+  QVERIFY(mw->button_read->isEnabled());
+  QVERIFY(mw->async_process == nullptr);
+}
+
+void MainWindowTest::finishedProcessesAreDeleted() {
+  // Regression: every operation leaked a parentless QProcess.
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("00").repeated(16));
+  auto mw = makeWindow();
+  for (int i = 0; i < 3; i++) {
+    mw->read_device();
+    QTRY_VERIFY(mw->async_process == nullptr);
+  }
+  QTRY_COMPARE(mw->findChildren<QProcess *>().size(), 0);
+}
+
+void MainWindowTest::closingWindowLetsRunningWriteFinish() {
+  // Destroying the window must not kill minipro in the middle of a write.
+  const QString doneLog = QDir(tempDir.path()).filePath("done.log");
+  QFile::remove(doneLog);
+  qputenv("FAKE_MINIPRO_DONE_LOG", doneLog.toLocal8Bit());
+  qputenv("FAKE_MINIPRO_DELAY", "1");
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  mw->write_file_to_device("/images/fw.bin");
+  QTRY_VERIFY(loggedCalls().contains("-p AT28C256 -w /images/fw.bin"));
+  mw.reset();
+  QFile done(doneLog);
+  QVERIFY(done.open(QFile::ReadOnly | QFile::Text));
+  QVERIFY(QString::fromLocal8Bit(done.readAll()).contains("-p AT28C256 -w /images/fw.bin"));
+}
+
+void MainWindowTest::firmwarePromptDoesNotHang() {
+  // Regression: minipro waits for y/n on stdin, which the GUI left open, so Update Firmware
+  // never finished. With end-of-input it aborts and the controls come back.
+  auto mw = makeWindow();
+  mw->update_firmware_from_file("/images/update.dat");
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->status_view->toPlainText().contains("Firmware update aborted."));
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: minipro exited with code 1"));
+  QVERIFY(mw->button_update->isEnabled());
 }
 
 QTEST_MAIN(MainWindowTest)

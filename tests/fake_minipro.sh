@@ -8,7 +8,10 @@
 #   FAKE_MINIPRO_READ_HEX     hex string written (as bytes) to the -r target file
 #   FAKE_MINIPRO_READ_EXIT    exit code for -r / -w / -F operations (default 0)
 #   FAKE_MINIPRO_CRASH        if set, device operations kill themselves with SIGKILL (a crash)
+#   FAKE_MINIPRO_DELAY        seconds a device operation takes (default 0)
+#   FAKE_MINIPRO_DONE_LOG     file each device operation appends its arguments to when it ends
 
+ARGS="$*"
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
   echo "$*" >> "$FAKE_MINIPRO_LOG"
 fi
@@ -56,9 +59,24 @@ while [ $# -gt 0 ]; do
       fi
       echo "Reading Code...  0.10Sec  OK" >&2
       ;;
+    -F)
+      # Like minipro, ask for confirmation on stdin; anything but y aborts.
+      printf 'Do you want to continue with firmware update? y/n:' >&2
+      read -r answer || answer=""
+      if [ "$answer" != "y" ]; then
+        echo "Firmware update aborted." >&2
+        exit 1
+      fi
+      ;;
   esac
   shift
 done
+if [ -n "$FAKE_MINIPRO_DELAY" ]; then
+  sleep "$FAKE_MINIPRO_DELAY"
+fi
+if [ -n "$FAKE_MINIPRO_DONE_LOG" ]; then
+  echo "$ARGS" >> "$FAKE_MINIPRO_DONE_LOG"
+fi
 if [ -n "$FAKE_MINIPRO_CRASH" ]; then
   kill -9 $$
 fi
