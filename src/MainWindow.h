@@ -124,12 +124,10 @@ class MainWindow : public QMainWindow {
   // How long a quick synchronous query (--version, --presence_check, -l, -d) may take before
   // minipro is stopped. Device operations run asynchronously and have no limit.
   static int sync_timeout_ms;
-  // Folders searched for minipro after PATH (see minipro_path()). Tests empty it, so they can
+  // Folders searched for minipro after PATH (see find_minipro()). Tests empty it, so they can
   // never find a real minipro installed on the machine running them.
   static QStringList minipro_fallback_dirs;
   static QString run_process(QPlainTextEdit &, const QStringList &, const QString &);
-  static QString minipro_path();
-  static QString minipro_not_found_message();
   // What the running async process is doing, so its result is handled correctly.
   enum class AsyncOperation { Read, Write, FirmwareUpdate, Erase, Check, HardwareCheck };
 

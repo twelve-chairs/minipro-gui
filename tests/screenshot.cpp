@@ -70,8 +70,76 @@ int fail(const QString &message) { return fail(message.toLocal8Bit().constData()
 // back before that folder is removed (Windows can't remove a working directory).
 struct RestoreCurrentDir {
   QString path = QDir::currentPath();
+  RestoreCurrentDir() = default;
+  RestoreCurrentDir(const RestoreCurrentDir &) = delete;
+  RestoreCurrentDir &operator=(const RestoreCurrentDir &) = delete;
+  RestoreCurrentDir(RestoreCurrentDir &&) = delete;
+  RestoreCurrentDir &operator=(RestoreCurrentDir &&) = delete;
   ~RestoreCurrentDir() { QDir::setCurrent(path); }
 };
+
+// Copies the fake minipro into `bin` and puts it first on PATH. Returns an error, or empty.
+QString installFakeMinipro(const QTemporaryDir &bin) {
+#ifdef Q_OS_WIN
+  const QString fake = bin.filePath("minipro.exe");
+#else
+  const QString fake = bin.filePath("minipro");
+#endif
+  if (!QFile::copy(FAKE_MINIPRO_SOURCE, fake) ||
+      !QFile::setPermissions(fake, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) {
+    return "could not copy the fake minipro";
+  }
+  qputenv("PATH", QDir::toNativeSeparators(bin.path()).toLocal8Bit() + QDir::listSeparator().toLatin1() +
+                      qgetenv("PATH"));
+  // Refuse to go on unless the app will find the fake: it would otherwise run the real minipro.
+  if (QFileInfo(QStandardPaths::findExecutable("minipro")) != QFileInfo(fake)) {
+    return "the fake minipro isn't the first one on PATH; refusing to run the real one";
+  }
+  return {};
+}
+
+// The app's own window (MainWindow itself is never shown).
+QWidget *findAppWindow(const QWidget *main_window) {
+  QWidget *window = nullptr;
+  for (QWidget *widget : QApplication::topLevelWidgets()) {
+    if (widget->isVisible() && widget != main_window) window = widget;
+  }
+  return window;
+}
+
+// At the app's default size, a whole hex row (bytes and ASCII) must fit. Checked here because this
+// runs on the native platform; the tests' offscreen fonts are narrower and can't show it. macOS's
+// overlay scrollbars take no room, but with "Show scroll bars: Always" (and on other systems) the
+// vertical one does, so leave room for it either way.
+struct RowFit {
+  int needed = 0;
+  int available = 0;
+  bool fits = false;
+};
+
+RowFit measureHexRow(const QTableView *hex_view) {
+  RowFit fit;
+  // A full row's ASCII text, measured as the view's delegate draws it.
+  QStyleOptionViewItem ascii_option;
+  ascii_option.initFrom(hex_view);
+  fit.needed = hex_view->itemDelegate()->sizeHint(ascii_option, hex_view->model()->index(0, 16)).width();
+  for (int column = 0; column < 16; column++) fit.needed += hex_view->columnWidth(column);
+  fit.available = hex_view->viewport()->width();
+  if (hex_view->style()->styleHint(QStyle::SH_ScrollBar_Transient, nullptr, hex_view) != 0) {
+    fit.available -= hex_view->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, hex_view);
+  }
+  fit.fits = !hex_view->horizontalScrollBar()->isVisible() && fit.needed <= fit.available;
+  return fit;
+}
+
+// The temp folder differs per machine and QTemporaryDir's suffix per run, and the folder can name
+// the user: show them as $TMPDIR and XXXXXX, so the image is the same everywhere and every time.
+void maskReadFolder(QPlainTextEdit *output_pane) {
+  static const QRegularExpression read_folder(R"((?:/[^\s/]+)+/minipro-gui-[A-Za-z0-9]{6}/)");
+  output_pane->setPlainText(output_pane->toPlainText().replace(read_folder, "$TMPDIR/minipro-gui-XXXXXX/"));
+  output_pane->moveCursor(QTextCursor::End);  // back to the read, as the app leaves it
+  output_pane->ensureCursorVisible();
+}
 
 }  // namespace
 
@@ -86,21 +154,7 @@ int main(int argc, char *argv[]) {
   QTemporaryDir bin;
   QTemporaryDir work;
   if (!bin.isValid() || !work.isValid()) return fail("could not create temporary folders");
-#ifdef Q_OS_WIN
-  const QString fake = bin.filePath("minipro.exe");
-#else
-  const QString fake = bin.filePath("minipro");
-#endif
-  if (!QFile::copy(FAKE_MINIPRO_SOURCE, fake) ||
-      !QFile::setPermissions(fake, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) {
-    return fail("could not copy the fake minipro");
-  }
-  qputenv("PATH", QDir::toNativeSeparators(bin.path()).toLocal8Bit() + QDir::listSeparator().toLatin1() +
-                      qgetenv("PATH"));
-  // Refuse to go on unless the app will find the fake: it would otherwise run the real minipro.
-  if (QFileInfo(QStandardPaths::findExecutable("minipro")) != QFileInfo(fake)) {
-    return fail("the fake minipro isn't the first one on PATH; refusing to run the real one");
-  }
+  if (const QString error = installFakeMinipro(bin); !error.isEmpty()) return fail(error);
   qputenv("FAKE_MINIPRO_READ_HEX", sampleText().toHex());
   qputenv("FAKE_MINIPRO_READ_SIZE", QByteArray::number(kChipSize));
   const RestoreCurrentDir restore_current_dir;  // declared after `work`, so it runs first
@@ -108,10 +162,7 @@ int main(int argc, char *argv[]) {
 
   MainWindow main_window;  // shows its window
 
-  QWidget *window = nullptr;
-  for (QWidget *widget : QApplication::topLevelWidgets()) {
-    if (widget->isVisible() && widget != &main_window) window = widget;
-  }
+  QWidget *window = findAppWindow(&main_window);
   if (window == nullptr) return fail("the app window didn't open");
   // An inactive window is drawn in other colors, so a run that left the terminal in front would
   // give a different image. Bring the window to the front, and refuse to save one that isn't.
@@ -145,34 +196,14 @@ int main(int argc, char *argv[]) {
   if (!loaded) return fail("the read didn't fill the hex view");
   settle();
   if (hex_view->model()->rowCount() != kChipSize / 16) return fail("the hex view doesn't show the whole chip");
-  // At the app's default size, a whole hex row (bytes and ASCII) must fit. Checked here because
-  // this runs on the native platform; the tests' offscreen fonts are narrower and can't show it.
-  // macOS's overlay scrollbars take no room, but with "Show scroll bars: Always" (and on other
-  // systems) the vertical one does, so leave room for it either way.
-  // A full row's ASCII text, measured as the view's delegate draws it.
-  QStyleOptionViewItem ascii_option;
-  ascii_option.initFrom(hex_view);
-  int needed = hex_view->itemDelegate()->sizeHint(ascii_option, hex_view->model()->index(0, 16)).width();
-  for (int column = 0; column < 16; column++) needed += hex_view->columnWidth(column);
-  int available = hex_view->viewport()->width();
-  if (hex_view->style()->styleHint(QStyle::SH_ScrollBar_Transient, nullptr, hex_view) != 0) {
-    available -= hex_view->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, hex_view);
-  }
-  if (hex_view->horizontalScrollBar()->isVisible() || needed > available) {
+  if (const RowFit fit = measureHexRow(hex_view); !fit.fits) {
     return fail(QString("at the default window size a hex row doesn't fit: it needs %1 px, the view "
                         "has %2 px with room for a vertical scrollbar")
-                    .arg(needed)
-                    .arg(available));
+                    .arg(fit.needed)
+                    .arg(fit.available));
   }
-  // QTemporaryDir's random suffix would change the image on every run; show the pattern instead.
   if (auto *output_pane = window->findChild<QPlainTextEdit *>(); output_pane != nullptr) {
-    // The temp folder differs per machine and the suffix per run, and the folder can name the
-    // user: show them as $TMPDIR and XXXXXX, so the image is the same everywhere and every time.
-    static const QRegularExpression read_folder(R"((?:/[^\s/]+)+/minipro-gui-[A-Za-z0-9]{6}/)");
-    output_pane->setPlainText(
-        output_pane->toPlainText().replace(read_folder, "$TMPDIR/minipro-gui-XXXXXX/"));
-    output_pane->moveCursor(QTextCursor::End);  // back to the read, as the app leaves it
-    output_pane->ensureCursorVisible();
+    maskReadFolder(output_pane);
   }
   settle();
 
@@ -182,7 +213,6 @@ int main(int argc, char *argv[]) {
                     .arg(image.devicePixelRatio()));
   }
   if (!image.save(output)) return fail("could not save the screenshot");
-  std::cout << "screenshot: a hex row needs " << needed << " of " << available
-            << " px; saved " << output.toStdString() << std::endl;
+  std::cout << "screenshot: saved " << output.toStdString() << std::endl;
   return 0;
 }

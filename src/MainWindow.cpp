@@ -22,6 +22,26 @@ const std::array<FirmwarePromptKind, 2> firmware_prompts{{
 const QString erase_to_end_of_line = QString(QChar(0x1B)) + "[K";
 }  // namespace
 
+namespace {
+
+// The minipro on PATH, or else in fallback_dirs, as an absolute path; empty if there is none.
+// Never the current directory: started by bare name, Windows would search it before PATH, so a
+// minipro.exe planted in the folder the app was started from would run instead.
+QString find_minipro(const QStringList &fallback_dirs) {
+  if (QString found = QStandardPaths::findExecutable("minipro"); !found.isEmpty()) return found;
+  if (fallback_dirs.isEmpty()) return {};
+  return QStandardPaths::findExecutable("minipro", fallback_dirs);
+}
+
+// Why find_minipro() found nothing, for the Output pane.
+QString minipro_not_found_message(const QStringList &fallback_dirs) {
+  QString searched = "PATH";
+  for (const QString &dir : fallback_dirs) searched += ", " + dir;
+  return "[Error]: could not start minipro: it was not found (searched " + searched + ")";
+}
+
+}  // namespace
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   initializer();
   auto *layout = new QGridLayout(window.get());
@@ -184,28 +204,12 @@ void MainWindow::initializer() {
   status_view->setFont(monospace_font);
 }
 
-// The minipro on PATH, or else in minipro_fallback_dirs, as an absolute path; empty if there is
-// none. Never the current directory: started by bare name, Windows would search it before PATH,
-// so a minipro.exe planted in the folder the app was started from would run instead.
-QString MainWindow::minipro_path() {
-  if (QString found = QStandardPaths::findExecutable("minipro"); !found.isEmpty()) return found;
-  if (minipro_fallback_dirs.isEmpty()) return {};
-  return QStandardPaths::findExecutable("minipro", minipro_fallback_dirs);
-}
-
-// Why minipro_path() found nothing, for the Output pane.
-QString MainWindow::minipro_not_found_message() {
-  QString searched = "PATH";
-  for (const QString &dir : minipro_fallback_dirs) searched += ", " + dir;
-  return "[Error]: could not start minipro: it was not found (searched " + searched + ")";
-}
-
 void MainWindow::run_async_process(const QStringList &process_arguments,
                                    AsyncOperation operation) {
   if (refuse_if_operation_running()) return;
-  const QString program = minipro_path();
+  const QString program = find_minipro(minipro_fallback_dirs);
   if (program.isEmpty()) {
-    status_view->appendPlainText(minipro_not_found_message());
+    status_view->appendPlainText(minipro_not_found_message(minipro_fallback_dirs));
     status_view->ensureCursorVisible();
     build_default_hex_output();
     return;
@@ -336,9 +340,9 @@ QString MainWindow::run_process(QPlainTextEdit &target_plain_text_edit,
   }
   target_plain_text_edit.appendPlainText("[Input]: minipro " + process_arguments_string);
 
-  const QString program = minipro_path();
+  const QString program = find_minipro(minipro_fallback_dirs);
   if (program.isEmpty()) {
-    target_plain_text_edit.appendPlainText(minipro_not_found_message());
+    target_plain_text_edit.appendPlainText(minipro_not_found_message(minipro_fallback_dirs));
     target_plain_text_edit.ensureCursorVisible();
     return {};
   }
