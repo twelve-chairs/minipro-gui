@@ -74,10 +74,16 @@ jobs:
           QTEST_FUNCTION_TIMEOUT: '30000'
         run: |
           $exe = "tests/build/$env:BUILD_TYPE/mainwindow_test.exe"
-          $functions = & $exe -functions | ForEach-Object { $_ -replace '\(\)$', '' }
-          foreach ($f in $functions) {
-            $out = & $exe $f 2>&1 | Out-String
-            "== $f exit=$LASTEXITCODE"
-            if ($LASTEXITCODE -ne 0) { $out }
+          $runs = @('largeImageLoadsQuickly',
+                    'oddDeviceInfoOutput:fields missing',
+                    'oddDeviceInfoOutput:unknown lines and order',
+                    'oddDeviceInfoOutput:no fields',
+                    'oddDeviceInfoOutput:escape sequences',
+                    'oddDeviceInfoOutput:very long line')
+          foreach ($r in $runs) {
+            Remove-Item -ErrorAction SilentlyContinue out.txt
+            & $exe $r -o out.txt,txt 2>&1 | Out-Null
+            "== $r exit=$LASTEXITCODE"
+            if (Test-Path out.txt) { Get-Content out.txt | Select-String -NotMatch '^PASS' }
           }
           exit 0
