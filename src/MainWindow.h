@@ -40,7 +40,6 @@ class MainWindow : public QMainWindow {
   void get_devices();
   void select_device(const QString & = "");
   void async_process_err_output();
-  void async_process_std_output() const;
   void async_process_finished(int, QProcess::ExitStatus);
   void async_process_error(QProcess::ProcessError);
 
@@ -71,13 +70,15 @@ class MainWindow : public QMainWindow {
   struct Targets {
     QComboBox *programmer = nullptr;
     QComboBox *device = nullptr;
-  } targets;
+  };
+  Targets targets;
   struct DeviceButtons {
     QPushButton *run_command = nullptr;
     QPushButton *write = nullptr;
     QPushButton *read = nullptr;
     QPushButton *update = nullptr;
-  } buttons;
+  };
+  DeviceButtons buttons;
   struct DeviceInfoFields {
     QLineEdit *name = nullptr;
     QLineEdit *memory = nullptr;
@@ -85,7 +86,8 @@ class MainWindow : public QMainWindow {
     QLineEdit *protocol = nullptr;
     QLineEdit *read_buffer = nullptr;
     QLineEdit *write_buffer = nullptr;
-  } device_info;
+  };
+  DeviceInfoFields device_info;
   // Modify an operation; added to Read, Write and Run Command.
   struct OptionCheckboxes {
     QCheckBox *no_id_error = nullptr;
@@ -93,13 +95,15 @@ class MainWindow : public QMainWindow {
     QCheckBox *no_size_error = nullptr;
     QCheckBox *skip_verify = nullptr;
     QCheckBox *pin_check = nullptr;
-  } options;
+  };
+  OptionCheckboxes options;
   // Separate minipro operations; only Run Command uses them.
   struct ActionCheckboxes {
     QCheckBox *blank_check = nullptr;
     QCheckBox *erase = nullptr;
     QCheckBox *hardware_check = nullptr;
-  } actions;
+  };
+  ActionCheckboxes actions;
 
   QPlainTextEdit *status_view = nullptr;
 
@@ -110,8 +114,7 @@ class MainWindow : public QMainWindow {
 
   void initializer();
   void format_hex_table_columns() const;
-  void disable_buttons();
-  void enable_buttons();
+  void update_controls();
   [[nodiscard]] QStringList parse_option_checkboxes() const;
   [[nodiscard]] QStringList parse_action_checkboxes() const;
   void write_file_to_device(const QString &);
@@ -124,7 +127,7 @@ class MainWindow : public QMainWindow {
   enum class AsyncOperation { Read, Write, FirmwareUpdate, Erase, Check };
   AsyncOperation async_operation = AsyncOperation::Read;
 
-  void run_async_process(const QStringList &, AsyncOperation, const QString & = "stderr");
+  void run_async_process(const QStringList &, AsyncOperation);
 
   // Yes/No questions, defaulting to No. Replaceable so tests never open a dialog.
   struct Confirmations {
@@ -133,17 +136,18 @@ class MainWindow : public QMainWindow {
     std::function<bool(const QString &)> firmware_update;
     // Go ahead with an operation that overwrites or erases the chip? (title, text)
     std::function<bool(const QString &, const QString &)> device_change;
-  } confirmations;
+  };
+  Confirmations confirmations;
   // minipro's output during a firmware update, until its y/n prompt has been answered.
   struct FirmwarePrompt {
     QString output;
     bool answered = false;
-  } firmware_prompt;
+  };
+  FirmwarePrompt firmware_prompt;
   void answer_firmware_prompt_if_asked(const QString &new_output);
   [[nodiscard]] bool refuse_if_operation_running() const;
   [[nodiscard]] bool device_selected() const;
   [[nodiscard]] bool refuse_if_no_device() const;
-  void set_device_operation_running(bool);
   void end_async_process();
   void build_default_hex_output();
   void build_formatted_hex_output();

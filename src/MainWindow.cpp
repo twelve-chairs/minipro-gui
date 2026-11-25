@@ -92,7 +92,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   status_view->setReadOnly(true);
 
-  disable_buttons();
+  update_controls();
   check_for_minipro();
   build_default_hex_output();
 
@@ -134,34 +134,34 @@ void MainWindow::initializer() {
   window->resize(1000, 600);
   window->setMinimumSize(800, 480);
 
-  targets.programmer = new QComboBox();
-  targets.device = new QComboBox();
+  targets.programmer = new QComboBox(window.get());
+  targets.device = new QComboBox(window.get());
 
-  buttons.run_command = new QPushButton("Run Command");
-  buttons.write = new QPushButton("Write to Device");
-  buttons.read = new QPushButton("Read from Device");
-  buttons.update = new QPushButton("Update Firmware");
+  buttons.run_command = new QPushButton("Run Command", window.get());
+  buttons.write = new QPushButton("Write to Device", window.get());
+  buttons.read = new QPushButton("Read from Device", window.get());
+  buttons.update = new QPushButton("Update Firmware", window.get());
 
-  options.no_id_error = new QCheckBox("Ignore ID Error");
-  options.skip_id = new QCheckBox("Skip ID Check");
-  options.no_size_error = new QCheckBox("Ignore Size Error");
-  options.skip_verify = new QCheckBox("Skip Verification");
-  options.pin_check = new QCheckBox("Pin Check");
-  actions.blank_check = new QCheckBox("Blank Check");
-  actions.erase = new QCheckBox("Erase Device");
-  actions.hardware_check = new QCheckBox("Hardware Check");
+  options.no_id_error = new QCheckBox("Ignore ID Error", window.get());
+  options.skip_id = new QCheckBox("Skip ID Check", window.get());
+  options.no_size_error = new QCheckBox("Ignore Size Error", window.get());
+  options.skip_verify = new QCheckBox("Skip Verification", window.get());
+  options.pin_check = new QCheckBox("Pin Check", window.get());
+  actions.blank_check = new QCheckBox("Blank Check", window.get());
+  actions.erase = new QCheckBox("Erase Device", window.get());
+  actions.hardware_check = new QCheckBox("Hardware Check", window.get());
 
-  device_info.name = new QLineEdit();
+  device_info.name = new QLineEdit(window.get());
   device_info.name->setReadOnly(true);
-  device_info.memory = new QLineEdit();
+  device_info.memory = new QLineEdit(window.get());
   device_info.memory->setReadOnly(true);
-  device_info.package = new QLineEdit();
+  device_info.package = new QLineEdit(window.get());
   device_info.package->setReadOnly(true);
-  device_info.protocol = new QLineEdit();
+  device_info.protocol = new QLineEdit(window.get());
   device_info.protocol->setReadOnly(true);
-  device_info.read_buffer = new QLineEdit();
+  device_info.read_buffer = new QLineEdit(window.get());
   device_info.read_buffer->setReadOnly(true);
-  device_info.write_buffer = new QLineEdit();
+  device_info.write_buffer = new QLineEdit(window.get());
   device_info.write_buffer->setReadOnly(true);
 
   hexTableView = new QTableView(window.get());
@@ -173,8 +173,7 @@ void MainWindow::initializer() {
 }
 
 void MainWindow::run_async_process(const QStringList &process_arguments,
-                                   AsyncOperation operation,
-                                   const QString &type) {
+                                   AsyncOperation operation) {
   if (refuse_if_operation_running()) return;
   QString process_arguments_string = "";
   async_operation = operation;
@@ -184,11 +183,8 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
   }
 
   status_view->appendPlainText("[Input]: minipro " + process_arguments_string);
-  if (type == "stderr") {
-    connect(async_process, SIGNAL(readyReadStandardError()), this, SLOT(async_process_err_output()));
-  } else if (type == "stdout") {
-    connect(async_process, SIGNAL(readyReadStandardOutput()), this, SLOT(async_process_std_output()));
-  }
+  // minipro reports progress and errors on stderr.
+  connect(async_process, SIGNAL(readyReadStandardError()), this, SLOT(async_process_err_output()));
   connect(async_process,
           SIGNAL(finished(int,QProcess::ExitStatus)),
           this,
@@ -200,7 +196,7 @@ void MainWindow::run_async_process(const QStringList &process_arguments,
 
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
-  set_device_operation_running(true);
+  update_controls();  // async_process is set: disables everything that starts minipro
   firmware_prompt.output.clear();
   firmware_prompt.answered = false;
   async_process->start("minipro", process_arguments);
@@ -247,25 +243,10 @@ bool MainWindow::refuse_if_operation_running() const {
   return true;
 }
 
-void MainWindow::set_device_operation_running(bool running) {
-  if (running) {
-    disable_buttons();
-    // Selecting a device or programmer also runs minipro against the programmer.
-    targets.programmer->setDisabled(true);
-    return;
-  }
-  targets.programmer->setDisabled(!minipro_found);
-  if (programmer_found) {
-    enable_buttons();
-  } else {
-    disable_buttons();
-  }
-}
-
 void MainWindow::end_async_process() {
   async_process->deleteLater();
   async_process = nullptr;
-  set_device_operation_running(false);
+  update_controls();
 }
 
 void MainWindow::async_process_err_output() {
@@ -273,12 +254,6 @@ void MainWindow::async_process_err_output() {
   status_view->appendPlainText(QString(output).trimmed().replace(erase_to_end_of_line, ""));
   status_view->ensureCursorVisible();
   answer_firmware_prompt_if_asked(output);
-}
-
-void MainWindow::async_process_std_output() const {
-  status_view->appendPlainText(
-      QString::fromLocal8Bit(async_process->readAllStandardOutput()).trimmed().replace(erase_to_end_of_line, ""));
-  status_view->ensureCursorVisible();
 }
 
 // Options modify an operation; they are safe to add to Read, Write and Run Command.
@@ -367,8 +342,6 @@ void MainWindow::check_for_minipro() {
       minipro_found = true;
       check_for_programmer();
       get_devices();
-    } else {
-      targets.programmer->setDisabled(true);
     }
   }
 }
@@ -392,31 +365,30 @@ void MainWindow::check_for_programmer() {
       programmer = match.captured(1).trimmed();
       programmer_found = true;
       targets.programmer->addItem(programmer);
-      enable_buttons();
+      update_controls();
     } else {
       targets.programmer->setPlaceholderText("No programmer found");
       programmer_found = false;
-      disable_buttons();
+      update_controls();
     }
   }
 }
 
-void MainWindow::disable_buttons() {
-  targets.device->setDisabled(true);
-  buttons.run_command->setDisabled(true);
-  buttons.read->setDisabled(true);
-  buttons.write->setDisabled(true);
-  buttons.update->setDisabled(true);
-}
-
-void MainWindow::enable_buttons() {
+// Which controls are usable follows from the current state; every change goes through here.
+void MainWindow::update_controls() {
+  const bool idle = async_process == nullptr;
+  // Selecting a programmer or device also runs minipro, so nothing that does is usable while an
+  // operation runs.
+  targets.programmer->setDisabled(!idle || !minipro_found);
+  const bool can_use_programmer = idle && programmer_found;
   // Device operations need a device from minipro's list. If -l returned nothing, `device` is
   // empty and they would send "-p ''". Updating the programmer's firmware needs no device.
-  targets.device->setDisabled(devices_list.isEmpty());
-  buttons.run_command->setDisabled(!device_selected());
-  buttons.read->setDisabled(!device_selected());
-  buttons.write->setDisabled(!device_selected());
-  buttons.update->setDisabled(false);
+  const bool can_use_device = can_use_programmer && device_selected();
+  targets.device->setDisabled(!can_use_programmer || devices_list.isEmpty());
+  buttons.run_command->setDisabled(!can_use_device);
+  buttons.read->setDisabled(!can_use_device);
+  buttons.write->setDisabled(!can_use_device);
+  buttons.update->setDisabled(!can_use_programmer);
 }
 
 bool MainWindow::device_selected() const {
@@ -446,7 +418,7 @@ void MainWindow::get_devices() {
     devices_list.removeDuplicates();
 
     targets.device->addItems(devices_list);  // selects the first device, if any
-    if (async_process == nullptr) enable_buttons();
+    update_controls();
   }
 }
 
@@ -488,8 +460,8 @@ void MainWindow::select_device(const QString &selected_device) {
 
 void MainWindow::run_command() {
   if (minipro_found && !refuse_if_operation_running() && !refuse_if_no_device()) {
-    const QStringList actions = parse_action_checkboxes();
-    if (actions.size() != 1) {
+    const QStringList chosen_actions = parse_action_checkboxes();
+    if (chosen_actions.size() != 1) {
       // minipro runs only one action; with several it would silently pick one.
       status_view->appendPlainText(
           "[Error]: Run Command needs exactly one of Blank Check, Erase Device or "
@@ -497,17 +469,17 @@ void MainWindow::run_command() {
       status_view->ensureCursorVisible();
       return;
     }
-    if (actions.first() == "--erase" &&
+    if (chosen_actions.first() == "--erase" &&
         !confirmations.device_change(tr("Erase %1?").arg(device),
                                tr("This erases everything on the %1 in the programmer.").arg(device))) {
       status_view->appendPlainText("[Cancelled]: erase " + device);
       return;
     }
     QStringList arguments;
-    arguments << "-p" << device << actions << parse_option_checkboxes();
+    arguments << "-p" << device << chosen_actions << parse_option_checkboxes();
     // Asynchronous: an erase or blank check can take minutes on a large chip.
-    run_async_process(arguments, actions.first() == "--erase" ? AsyncOperation::Erase
-                                                              : AsyncOperation::Check);
+    run_async_process(arguments, chosen_actions.first() == "--erase" ? AsyncOperation::Erase
+                                                                     : AsyncOperation::Check);
   }
 }
 
