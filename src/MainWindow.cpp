@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include <QStandardPaths>
+#include <QScreen>
 #include <QMessageBox>
 #include <QTimer>
 
@@ -135,7 +136,13 @@ void MainWindow::initializer() {
 
   window = std::make_unique<QWidget>();
   window->setWindowTitle("minipro CLI not found!");
-  window->resize(1100, 660);  // wide enough for the hex view's ASCII column on macOS
+  // Wide enough for a whole hex row (bytes and ASCII) on macOS, but never larger than the screen:
+  // on a small or scaled display the right-hand panels would open off-screen.
+  QSize size(1100, 660);
+  if (const QScreen *screen = window->screen(); screen != nullptr) {
+    size = size.boundedTo(screen->availableGeometry().size());
+  }
+  window->resize(size);
   window->setMinimumSize(800, 480);
 
   targets.programmer = new QComboBox(window.get());

@@ -7,6 +7,9 @@
 //   FAKE_MINIPRO_NO_PROGRAMMER  if set, --presence_check reports no programmer
 //   FAKE_MINIPRO_PRESENCE     if set, --presence_check prints this text instead (\n allowed)
 //   FAKE_MINIPRO_READ_HEX     hex string written (as bytes) to the -r target file
+//   FAKE_MINIPRO_READ_SIZE    if set, -r pads FAKE_MINIPRO_READ_HEX's bytes with 0xFF (erased)
+//                             up to this many bytes, like a chip of that size; a hex string that
+//                             long wouldn't fit in a Windows environment variable
 //   FAKE_MINIPRO_READ_EMPTY   if set, -r writes an empty file
 //   FAKE_MINIPRO_READ_EXIT    exit code for -r / -w / -F operations (default 0)
 //   FAKE_MINIPRO_CRASH        if set, device operations crash (SIGKILL; an access-violation exit
@@ -241,7 +244,11 @@ void readTo(const std::string &target) {
   if (isSet("FAKE_MINIPRO_READ_EMPTY")) {
     std::ofstream(target, std::ios::binary | std::ios::trunc);
   } else if (isSet("FAKE_MINIPRO_READ_HEX")) {
-    std::ofstream(target, std::ios::binary | std::ios::trunc) << decodeHex(env("FAKE_MINIPRO_READ_HEX"));
+    std::string bytes = decodeHex(env("FAKE_MINIPRO_READ_HEX"));
+    if (const std::string size = env("FAKE_MINIPRO_READ_SIZE"); !size.empty()) {
+      bytes.resize(std::max(bytes.size(), std::stoul(size)), static_cast<char>(0xFF));
+    }
+    std::ofstream(target, std::ios::binary | std::ios::trunc) << bytes;
   }
   std::cerr << "Reading Code...  0.10Sec  OK\n";
 }

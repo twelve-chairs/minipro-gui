@@ -3,6 +3,7 @@
 #include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QSignalSpy>
+#include <QScreen>
 #include <csignal>
 #include <memory>
 
@@ -33,6 +34,7 @@ class MainWindowTest : public QObject {
   // Startup / discovery
   void detectsMinipro();
   void windowHasAppIcon();
+  void defaultSizeFitsTheScreen();
   void versionParsing_data();
   void versionParsing();
   void oddDeviceInfoOutput_data();
@@ -166,6 +168,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
   qunsetenv("FAKE_MINIPRO_READ_EMPTY");
+  qunsetenv("FAKE_MINIPRO_READ_SIZE");
   qunsetenv("FAKE_MINIPRO_CRASH");
   qunsetenv("FAKE_MINIPRO_DELAY");
   qunsetenv("FAKE_MINIPRO_DONE_LOG");
@@ -1258,6 +1261,17 @@ void MainWindowTest::windowHasAppIcon() {
   QVERIFY(QFile::exists(":/res/AppIcon.png"));
   auto mw = makeWindow();
   QVERIFY(!mw->window->windowIcon().pixmap(64, 64).isNull());
+}
+
+void MainWindowTest::defaultSizeFitsTheScreen() {
+  // Regression (code review): the window opened at 1100x660 even on smaller screens, with its
+  // right-hand panels off-screen. The offscreen platform's screen is 800x600.
+  auto mw = makeWindow();
+  const QSize available = mw->window->screen()->availableGeometry().size();
+  QVERIFY2(mw->window->width() <= available.width() && mw->window->height() <= available.height(),
+           qPrintable(QString("window %1x%2, screen %3x%4")
+                          .arg(mw->window->width()).arg(mw->window->height())
+                          .arg(available.width()).arg(available.height())));
 }
 
 QTEST_MAIN(MainWindowTest)

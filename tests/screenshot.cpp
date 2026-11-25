@@ -17,6 +17,8 @@
 #include <QScrollBar>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QStyle>
+#include <QStyleOptionViewItem>
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QThread>
@@ -24,12 +26,18 @@
 
 namespace {
 
-// The bytes the fake "reads": a line of text, then erased (0xFF) bytes, 8 rows in all.
-QByteArray sampleImage() {
-  QByteArray image("minipro-gui: a GUI for the minipro CLI, for TL866II+, T48, T56 and T76 programmers.");
-  image.append(QByteArray(128 - image.size(), static_cast<char>(0xFF)));
-  return image;
+// The start of what the fake "reads": a line of text. FAKE_MINIPRO_READ_SIZE pads it with erased
+// (0xFF) bytes to the AT28C256's 32 KiB, so the hex view has a real chip's 2048 rows and its
+// vertical scrollbar, as after a real read.
+QByteArray sampleText() {
+  return "minipro-gui: a GUI for the minipro CLI, for TL866II+, T48, T56 and T76 programmers.";
 }
+constexpr int kChipSize = 32768;
+
+// The README image is 2x (Retina). grab() renders at the screen's own ratio, so another one would
+// give a different PNG; the tool refuses rather than scaling. (Rendering into a 2x QPixmap of our
+// own instead draws macOS text fields with white frames.)
+constexpr qreal kPixelRatio = 2.0;
 
 template <typename Predicate>
 bool waitFor(Predicate done, int timeout_ms) {
@@ -43,10 +51,27 @@ bool waitFor(Predicate done, int timeout_ms) {
   return true;
 }
 
+// Delivers everything pending (layout, scrolling, repaints) before the window is rendered.
+void settle() {
+  for (int pass = 0; pass < 5; pass++) {
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+  }
+}
+
 int fail(const char *message) {
   std::cerr << "screenshot: " << message << std::endl;
   return 1;
 }
+
+int fail(const QString &message) { return fail(message.toLocal8Bit().constData()); }
+
+// The app's folder in its temp dir is the working directory while it runs; this puts the original
+// back before that folder is removed (Windows can't remove a working directory).
+struct RestoreCurrentDir {
+  QString path = QDir::currentPath();
+  ~RestoreCurrentDir() { QDir::setCurrent(path); }
+};
 
 }  // namespace
 
@@ -76,7 +101,9 @@ int main(int argc, char *argv[]) {
   if (QFileInfo(QStandardPaths::findExecutable("minipro")) != QFileInfo(fake)) {
     return fail("the fake minipro isn't the first one on PATH; refusing to run the real one");
   }
-  qputenv("FAKE_MINIPRO_READ_HEX", sampleImage().toHex());
+  qputenv("FAKE_MINIPRO_READ_HEX", sampleText().toHex());
+  qputenv("FAKE_MINIPRO_READ_SIZE", QByteArray::number(kChipSize));
+  const RestoreCurrentDir restore_current_dir;  // declared after `work`, so it runs first
   QDir::setCurrent(work.path());
 
   MainWindow main_window;  // shows its window
@@ -86,6 +113,13 @@ int main(int argc, char *argv[]) {
     if (widget->isVisible() && widget != &main_window) window = widget;
   }
   if (window == nullptr) return fail("the app window didn't open");
+  // An inactive window is drawn in other colors, so a run that left the terminal in front would
+  // give a different image. Bring the window to the front, and refuse to save one that isn't.
+  window->raise();
+  window->activateWindow();
+  if (!waitFor([window] { return window->isActiveWindow(); }, 3000)) {
+    return fail("the window didn't become the active one; run it again without switching away");
+  }
 
   QComboBox *device = nullptr;
   for (QComboBox *box : window->findChildren<QComboBox *>()) {
@@ -109,24 +143,46 @@ int main(int argc, char *argv[]) {
       },
       10000);
   if (!loaded) return fail("the read didn't fill the hex view");
+  settle();
+  if (hex_view->model()->rowCount() != kChipSize / 16) return fail("the hex view doesn't show the whole chip");
   // At the app's default size, a whole hex row (bytes and ASCII) must fit. Checked here because
   // this runs on the native platform; the tests' offscreen fonts are narrower and can't show it.
-  if (hex_view->horizontalScrollBar()->isVisible()) {
-    return fail("at the default window size the hex view needs a horizontal scrollbar");
+  // macOS's overlay scrollbars take no room, but with "Show scroll bars: Always" (and on other
+  // systems) the vertical one does, so leave room for it either way.
+  // A full row's ASCII text, measured as the view's delegate draws it.
+  QStyleOptionViewItem ascii_option;
+  ascii_option.initFrom(hex_view);
+  int needed = hex_view->itemDelegate()->sizeHint(ascii_option, hex_view->model()->index(0, 16)).width();
+  for (int column = 0; column < 16; column++) needed += hex_view->columnWidth(column);
+  int available = hex_view->viewport()->width();
+  if (hex_view->style()->styleHint(QStyle::SH_ScrollBar_Transient, nullptr, hex_view) != 0) {
+    available -= hex_view->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, hex_view);
+  }
+  if (hex_view->horizontalScrollBar()->isVisible() || needed > available) {
+    return fail(QString("at the default window size a hex row doesn't fit: it needs %1 px, the view "
+                        "has %2 px with room for a vertical scrollbar")
+                    .arg(needed)
+                    .arg(available));
   }
   // QTemporaryDir's random suffix would change the image on every run; show the pattern instead.
   if (auto *output_pane = window->findChild<QPlainTextEdit *>(); output_pane != nullptr) {
     // The temp folder differs per machine and the suffix per run, and the folder can name the
     // user: show them as $TMPDIR and XXXXXX, so the image is the same everywhere and every time.
-    static const QRegularExpression read_folder(R"(\S+/minipro-gui-[A-Za-z0-9]{6}/)");
+    static const QRegularExpression read_folder(R"((?:/[^\s/]+)+/minipro-gui-[A-Za-z0-9]{6}/)");
     output_pane->setPlainText(
         output_pane->toPlainText().replace(read_folder, "$TMPDIR/minipro-gui-XXXXXX/"));
     output_pane->moveCursor(QTextCursor::End);  // back to the read, as the app leaves it
     output_pane->ensureCursorVisible();
   }
-  waitFor([] { return false; }, 300);  // let the last repaint land
+  settle();
 
-  if (!window->grab().save(output)) return fail("could not save the screenshot");
-  std::cout << "screenshot: saved " << output.toStdString() << std::endl;
+  const QPixmap image = window->grab();
+  if (image.devicePixelRatio() != kPixelRatio) {
+    return fail(QString("the window is on a %1x display; move it to a Retina (2x) one and run again")
+                    .arg(image.devicePixelRatio()));
+  }
+  if (!image.save(output)) return fail("could not save the screenshot");
+  std::cout << "screenshot: a hex row needs " << needed << " of " << available
+            << " px; saved " << output.toStdString() << std::endl;
   return 0;
 }
