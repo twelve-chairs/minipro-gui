@@ -59,6 +59,14 @@ elseif (WIN32)
 
 else ()
     add_executable(${PROJECT_NAME} ${CPP_FILES} ${H_FILES} ${INCLUDE} ${RESOURCE_FILES})
+
+    # `cmake --install` puts the app where desktop menus and panels find it. Panels match the
+    # window to minipro-gui.desktop (by WM_CLASS on X11, by the app ID from main.cpp on Wayland)
+    # and show its icon; Wayland ignores the window icon itself.
+    include(GNUInstallDirs)
+    install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES res/${PROJECT_NAME}.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES res/AppIcon.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME ${PROJECT_NAME}.png)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt::Core

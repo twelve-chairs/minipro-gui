@@ -57,7 +57,13 @@ git clone https://github.com/twelve-chairs/minipro-gui.git
 cd minipro-gui
 cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_MAKE_PROGRAM=ninja -G Ninja -S . -B "./cmake-build-minsizerel"
 cmake --build ./cmake-build-minsizerel --target minipro-gui -- -j 2
-./cmake-build-minsizerel/minipro-gui
+./cmake-build-minsizerel/minipro-gui                            # Linux
+open ./cmake-build-minsizerel/minipro-gui.app                   # macOS
+```
+
+On Linux, install it to get a menu entry and the app icon in the panel. This puts the program in `/usr/local/bin`, `minipro-gui.desktop` in `/usr/local/share/applications` and the icon in `/usr/local/share/pixmaps`:
+```
+sudo cmake --install ./cmake-build-minsizerel
 ```
 
 Windows, in PowerShell (adjust the Qt path to your install):

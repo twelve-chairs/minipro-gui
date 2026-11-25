@@ -40,6 +40,14 @@ jobs:
       - name: Build Ubuntu
         shell: bash
         run: |
-          sudo apt-get install build-essential ninja-build cmake libgl1-mesa-dev qt6-base-dev -y
+          sudo apt-get install build-essential ninja-build cmake libgl1-mesa-dev qt6-base-dev desktop-file-utils -y
           cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_MAKE_PROGRAM=ninja -G Ninja -S . -B "./cmake-build-${BUILD_TYPE}"
           cmake --build ./cmake-build-${BUILD_TYPE} --target minipro-gui -- -j 2
+      - name: Check the desktop entry and install rules
+        shell: bash
+        run: |
+          desktop-file-validate res/minipro-gui.desktop
+          cmake --install ./cmake-build-${BUILD_TYPE} --prefix "$RUNNER_TEMP/stage"
+          test -x "$RUNNER_TEMP/stage/bin/minipro-gui"
+          test -f "$RUNNER_TEMP/stage/share/applications/minipro-gui.desktop"
+          test -f "$RUNNER_TEMP/stage/share/pixmaps/minipro-gui.png"
