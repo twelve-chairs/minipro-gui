@@ -66,3 +66,18 @@ jobs:
           cmake -A x64 -S tests -B tests/build
           cmake --build tests/build --config $env:BUILD_TYPE
           ctest --test-dir tests/build -C $env:BUILD_TYPE --output-on-failure
+      - name: Diagnose (temporary) - each test function alone, 30 s limit
+        if: failure()
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_FUNCTION_TIMEOUT: '30000'
+        run: |
+          $exe = "tests/build/$env:BUILD_TYPE/mainwindow_test.exe"
+          $functions = & $exe -functions | ForEach-Object { $_ -replace '\(\)$', '' }
+          foreach ($f in $functions) {
+            $out = & $exe $f 2>&1 | Out-String
+            "== $f exit=$LASTEXITCODE"
+            if ($LASTEXITCODE -ne 0) { $out }
+          }
+          exit 0
