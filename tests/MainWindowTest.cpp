@@ -83,6 +83,11 @@ class MainWindowTest : public QObject {
   void firmwareUpdateWhenDeclined();
   void closingWindowAtFirmwarePromptAborts();
 
+  // Confirmations before changing the chip
+  void writeAsksAndCanBeCancelled();
+  void eraseAsksAndCanBeCancelled();
+  void checksDoNotAsk();
+
  private:
   using WindowPtr = std::unique_ptr<MainWindow, MainWindowDeleter>;
   WindowPtr makeWindow();
@@ -144,6 +149,8 @@ MainWindowTest::WindowPtr MainWindowTest::makeWindow() {
   WindowPtr mw(new MainWindow());
   // Never open a real dialog in tests; decline by default (the safe answer).
   mw->confirm_firmware_update = [](const QString &) { return false; };
+  // Write and erase tests exercise the operation itself; declining is tested separately.
+  mw->confirm_device_change = [](const QString &, const QString &) { return true; };
   return mw;
 }
 
@@ -834,6 +841,55 @@ void MainWindowTest::oddDeviceInfoOutput() {
   QCOMPARE(mw->device_memory->text(), memory.left(mw->device_memory->maxLength()));
   QCOMPARE(mw->status_view->toPlainText().contains("[Error]: no device information for AT28C256"),
            name.isEmpty());
+}
+
+void MainWindowTest::writeAsksAndCanBeCancelled() {
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  QStringList asked;
+  mw->confirm_device_change = [&asked](const QString &title, const QString &text) {
+    asked << title << text;
+    return false;
+  };
+  mw->write_file_to_device("/images/fw.bin");
+  QCOMPARE(asked.size(), 2);
+  QCOMPARE(asked.at(0), QString("Write to AT28C256?"));
+  QVERIFY(asked.at(1).contains(QDir::toNativeSeparators("/images/fw.bin")));
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter(" -w ").isEmpty());
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: write to AT28C256"));
+  QVERIFY(mw->button_write->isEnabled());
+}
+
+void MainWindowTest::eraseAsksAndCanBeCancelled() {
+  auto mw = makeWindow();
+  mw->combobox_device->setCurrentText("AT28C256");
+  QString title;
+  mw->confirm_device_change = [&title](const QString &t, const QString &) {
+    title = t;
+    return false;
+  };
+  mw->erase_device->setChecked(true);
+  mw->run_command();
+  QCOMPARE(title, QString("Erase AT28C256?"));
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter("--erase").isEmpty());
+  QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: erase AT28C256"));
+}
+
+void MainWindowTest::checksDoNotAsk() {
+  // Blank, pin and hardware checks don't change the chip.
+  auto mw = makeWindow();
+  int asked = 0;
+  mw->confirm_device_change = [&asked](const QString &, const QString &) {
+    asked++;
+    return false;
+  };
+  mw->blank_check->setChecked(true);
+  mw->run_command();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QCOMPARE(asked, 0);
+  QVERIFY(loggedCalls().last().contains("--blank_check"));
 }
 
 QTEST_MAIN(MainWindowTest)

@@ -134,6 +134,9 @@ class MainWindow : public QMainWindow {
   // Asks the user whether to go ahead with a firmware update. It receives minipro's output so far,
   // which shows the installed and new firmware versions. Replaceable so tests never open a dialog.
   std::function<bool(const QString &)> confirm_firmware_update;
+  // Asks before an operation that overwrites or erases the chip (title, text). Default answer No.
+  // Replaceable so tests never open a dialog.
+  std::function<bool(const QString &, const QString &)> confirm_device_change;
   QString firmware_update_output;
   bool firmware_prompt_answered = false;
   void answer_firmware_prompt_if_asked(const QString &new_output);

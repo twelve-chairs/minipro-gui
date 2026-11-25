@@ -108,6 +108,10 @@ void MainWindow::initializer() {
                                      .arg(minipro_output.trimmed()),
                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
   };
+  confirm_device_change = [this](const QString &title, const QString &text) {
+    return QMessageBox::warning(window, title, text, QMessageBox::Yes | QMessageBox::No,
+                                QMessageBox::No) == QMessageBox::Yes;
+  };
   minipro_found = false;
   programmer_found = false;
 
@@ -459,6 +463,12 @@ void MainWindow::run_command() {
       status_view->ensureCursorVisible();
       return;
     }
+    if (actions.first() == "--erase" &&
+        !confirm_device_change(tr("Erase %1?").arg(device),
+                               tr("This erases everything on the %1 in the programmer.").arg(device))) {
+      status_view->appendPlainText("[Cancelled]: erase " + device);
+      return;
+    }
     QStringList arguments;
     arguments << "-p" << device << actions << parse_option_checkboxes();
     // Asynchronous: an erase or blank check can take minutes on a large chip.
@@ -521,6 +531,13 @@ void MainWindow::write_device() {
 }
 
 void MainWindow::write_file_to_device(const QString &file_name) {
+  if (refuse_if_operation_running()) return;
+  if (!confirm_device_change(tr("Write to %1?").arg(device),
+                             tr("This overwrites the contents of the %1 in the programmer with\n\n%2")
+                                 .arg(device, QDir::toNativeSeparators(file_name)))) {
+    status_view->appendPlainText("[Cancelled]: write to " + device);
+    return;
+  }
   QStringList arguments;
   arguments << "-p" << device << "-w" << file_name << parse_option_checkboxes();
   run_async_process(arguments, AsyncOperation::Write);
