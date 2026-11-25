@@ -2,6 +2,8 @@
 #include <QtTest/QtTest>
 #include <QAbstractItemModelTester>
 #include <QSignalSpy>
+#include <QElapsedTimer>
+#include <sys/resource.h>
 
 namespace {
 constexpr int kByteColumns = 16;
@@ -49,6 +51,7 @@ class HexViewTest : public QObject {
   void lessThanOneRowDoesNotCrash_data();
   void lessThanOneRowDoesNotCrash();
   void validParentHasNoChildren();
+  void largeImageIsCheapToLoad();
 
   // Generic model consistency checks
   void modelTesterOnPlaceholder();
@@ -260,6 +263,39 @@ void HexViewTest::modelTesterOnBuiltTable() {
   QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::QtTest);
   model.buildHexTable(sequentialHex(256));
   QCOMPARE(model.rowCount(), 16);
+}
+
+void HexViewTest::largeImageIsCheapToLoad() {
+  // A 16 MiB SPI flash (e.g. 25Q128). Regression: the model stored one QString per byte, which
+  // took gigabytes and many seconds for chips this size.
+  constexpr qsizetype kSize = 16 * 1024 * 1024;
+  QByteArray image(kSize, '\0');
+  for (qsizetype i = 0; i < kSize; i++) image[i] = static_cast<char>(i * 7);
+
+  rusage before{};
+  getrusage(RUSAGE_SELF, &before);
+  QElapsedTimer timer;
+  timer.start();
+  HexView model;
+  model.loadBytes(image);
+  const qint64 elapsedMs = timer.elapsed();
+  rusage after{};
+  getrusage(RUSAGE_SELF, &after);
+  // ru_maxrss is bytes on macOS and kilobytes on Linux.
+#ifdef Q_OS_MACOS
+  const long growthMiB = (after.ru_maxrss - before.ru_maxrss) / (1024 * 1024);
+#else
+  const long growthMiB = (after.ru_maxrss - before.ru_maxrss) / 1024;
+#endif
+  qInfo("loaded 16 MiB in %lld ms, peak memory grew by %ld MiB", elapsedMs, growthMiB);
+
+  QCOMPARE(model.rowCount(), static_cast<int>(kSize / 16));
+  QCOMPARE(model.index(model.rowCount() - 1, 15).data().toString(),
+           QString("%1").arg(static_cast<unsigned char>((kSize - 1) * 7), 2, 16, QLatin1Char('0')).toUpper());
+  QCOMPARE(model.headerData(model.rowCount() - 1, Qt::Vertical, Qt::DisplayRole).toString(),
+           QString("FFFFF0"));
+  QVERIFY2(elapsedMs < 1000, qPrintable(QString("took %1 ms").arg(elapsedMs)));
+  QVERIFY2(growthMiB < 200, qPrintable(QString("peak memory grew by %1 MiB").arg(growthMiB)));
 }
 
 QTEST_MAIN(HexViewTest)

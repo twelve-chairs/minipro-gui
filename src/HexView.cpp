@@ -2,6 +2,15 @@
 
 const int bytes_per_line = 16;
 const int column_count = bytes_per_line + 1; // 16 byte columns + ASCII column
+const int ascii_column = bytes_per_line;
+const int placeholder_rows = 8;
+
+namespace {
+QChar printable(unsigned char byte) {
+  // Printable, non-extended ASCII only
+  return (byte >= 0x20 && byte <= 0x7E) ? QChar(byte) : QChar('.');
+}
+}  // namespace
 
 HexView::HexView(QObject *parent) : QAbstractTableModel(parent) {
   clearHexTable();
@@ -11,7 +20,9 @@ HexView::HexView(QObject *parent) : QAbstractTableModel(parent) {
 
 int HexView::rowCount(const QModelIndex &parent) const {
   // Flat table: cells have no children.
-  return parent.isValid() ? 0 : static_cast<int>(table.size());
+  if (parent.isValid()) return 0;
+  if (showing_placeholder) return placeholder_rows;
+  return static_cast<int>((bytes.size() + bytes_per_line - 1) / bytes_per_line);
 }
 
 int HexView::columnCount(const QModelIndex &parent) const {
@@ -22,7 +33,7 @@ int HexView::columnCount(const QModelIndex &parent) const {
 QVariant HexView::data(const QModelIndex &index, int role) const {
   switch (role) {
     case Qt::DisplayRole: {
-      return table.at(index.row()).at(index.column());
+      return cellText(index.row(), index.column());
     }
     case Qt::TextAlignmentRole: {
       return Qt::AlignCenter;
@@ -71,38 +82,37 @@ QVariant HexView::headerData(int section, Qt::Orientation orientation, int role)
   return QVariant();
 }
 
+QString HexView::cellText(int row, int column) const {
+  if (showing_placeholder) {
+    return column == ascii_column ? QString(bytes_per_line, '.') : QString("--");
+  }
+  const qsizetype row_start = static_cast<qsizetype>(row) * bytes_per_line;
+  if (column == ascii_column) {
+    QString ascii;
+    for (qsizetype i = row_start; i < row_start + bytes_per_line && i < bytes.size(); i++) {
+      ascii += printable(static_cast<unsigned char>(bytes.at(i)));
+    }
+    return ascii;
+  }
+  const qsizetype offset = row_start + column;
+  if (offset >= bytes.size()) return {};  // blank cells pad a trailing partial row
+  return QString("%1").arg(static_cast<unsigned char>(bytes.at(offset)), 2, 16, QLatin1Char('0')).toUpper();
+}
+
 void HexView::clearHexTable() {
   beginResetModel();
-  table.clear();
-  const int number_of_rows = 8;
-  // Create 8 lines of blank data to display
-  for (int i = 0; i < number_of_rows; i++) {
-    table.append({"--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--",
-                  "................"});
-  }
+  bytes.clear();
+  showing_placeholder = true;
   endResetModel();
 }
 
-void HexView::buildHexTable(QString temp_file_content) {
+void HexView::loadBytes(const QByteArray &new_bytes) {
   beginResetModel();
-  table.clear();
-
-  const QByteArray bytes = QByteArray::fromHex(temp_file_content.toLatin1());
-  for (qsizetype offset = 0; offset < bytes.size(); offset += bytes_per_line) {
-    QVector<QString> row;
-    QString ascii_string_line;
-    for (int column = 0; column < bytes_per_line; column++) {
-      if (offset + column >= bytes.size()) {
-        row.append("");  // pad a trailing partial row
-        continue;
-      }
-      const auto byte = static_cast<unsigned char>(bytes.at(offset + column));
-      row.append(QString("%1").arg(byte, 2, 16, QLatin1Char('0')).toUpper());
-      // Printable, non-extended ASCII only
-      ascii_string_line += (byte >= 0x20 && byte <= 0x7E) ? QChar(byte) : QChar('.');
-    }
-    row.append(ascii_string_line);
-    table.append(row);
-  }
+  bytes = new_bytes;
+  showing_placeholder = false;
   endResetModel();
+}
+
+void HexView::buildHexTable(const QString &hex) {
+  loadBytes(QByteArray::fromHex(hex.toLatin1()));
 }

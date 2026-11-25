@@ -474,26 +474,26 @@ void MainWindow::build_default_hex_output() {
 }
 
 void MainWindow::build_formatted_hex_output() {
-  try {
-    QFile temp_file(temp_file_name);
-    temp_file.open(QFile::ReadOnly);
-    QString temp_file_content = QString::fromUtf8(temp_file.readAll().toHex());
-    temp_file.close();
-
-    hexViewModel.buildHexTable(temp_file_content);
-    format_hex_table_columns();
+  QFile temp_file(temp_file_name);
+  if (!temp_file.open(QFile::ReadOnly)) {
+    // minipro reported success but left no readable file.
+    status_view->appendPlainText("[Error]: could not open " + temp_file_name + ": " + temp_file.errorString());
+    status_view->ensureCursorVisible();
+    build_default_hex_output();
+    return;
   }
-  catch (const std::exception &e) {
-    status_view->appendPlainText("\n[Error]: " + static_cast<QString>(e.what()));
-  }
+  hexViewModel.loadBytes(temp_file.readAll());
+  format_hex_table_columns();
 }
 
 void MainWindow::format_hex_table_columns() const {
   hexTableView->horizontalHeader()->setStretchLastSection(true);
-  for (int n = 0; n <= hexViewModel.columnCount(); n++) {
+  for (int n = 0; n < hexViewModel.columnCount(); n++) {
     hexTableView->resizeColumnToContents(n);
   }
-  for (int n = 0; n <= hexViewModel.rowCount(); n++) {
-    hexTableView->resizeRowToContents(n);
-  }
+  // Every row has the same height. Sizing each row to its contents takes seconds for a large chip
+  // (a 16 MiB image has a million rows).
+  QHeaderView *rows = hexTableView->verticalHeader();
+  rows->setSectionResizeMode(QHeaderView::Fixed);
+  rows->setDefaultSectionSize(QFontMetrics(monospace_font).height() + 8);
 }

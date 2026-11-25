@@ -1,6 +1,7 @@
 #include "../src/MainWindow.h"
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <memory>
 
 // MainWindow drives the `minipro` CLI found on PATH. These tests put tests/fake_minipro.sh on PATH
@@ -52,6 +53,8 @@ class MainWindowTest : public QObject {
   void failedReadNeverShowsPreviousData_data();
   void failedReadNeverShowsPreviousData();
   void readThatWritesNoFileDoesNotShowPreviousRead();
+  void readWithNoFileReportsError();
+  void largeImageLoadsQuickly();
   void writeDoesNotLoadPreviousRead();
   void readReportsMiniproFailingToStart();
 
@@ -101,6 +104,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_NO_PROGRAMMER");
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
+  qunsetenv("FAKE_MINIPRO_READ_EMPTY");
   qunsetenv("FAKE_MINIPRO_CRASH");
   qunsetenv("FAKE_MINIPRO_DELAY");
   qunsetenv("FAKE_MINIPRO_DONE_LOG");
@@ -365,8 +369,9 @@ void MainWindowTest::failedReadRestoresPlaceholder() {
 }
 
 void MainWindowTest::readWithNoDataShowsEmptyTable() {
-  // Fake read succeeds but writes no temp.bin, so the hex view receives no bytes.
+  // Fake read succeeds and writes an empty temp.bin, so the hex view receives no bytes.
   // Regression: this used to crash in HexView::columnCount().
+  qputenv("FAKE_MINIPRO_READ_EMPTY", "1");
   auto mw = makeWindow();
   QCOMPARE(mw->hexViewModel.rowCount(), 8);
   mw->read_device();
@@ -413,7 +418,35 @@ void MainWindowTest::readThatWritesNoFileDoesNotShowPreviousRead() {
   readFfRow(*mw);
   qunsetenv("FAKE_MINIPRO_READ_HEX");  // the next read succeeds but writes no file
   mw->read_device();
-  QTRY_COMPARE(mw->hexViewModel.rowCount(), 0);
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open temp.bin"));
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+}
+
+void MainWindowTest::readWithNoFileReportsError() {
+  // Regression: QFile::open wasn't checked, so a missing file was shown as an empty chip.
+  auto mw = makeWindow();
+  mw->read_device();
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not open temp.bin"));
+  QCOMPARE(mw->hexViewModel.rowCount(), 8);
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+}
+
+void MainWindowTest::largeImageLoadsQuickly() {
+  // Regression: loading a 16 MiB image (a million rows) took over 10 s and more than 1 GB.
+  auto mw = makeWindow();
+  QFile image("temp.bin");
+  QVERIFY(image.open(QFile::WriteOnly));
+  image.write(QByteArray(16 * 1024 * 1024, '\x5A'));
+  image.close();
+
+  QElapsedTimer timer;
+  timer.start();
+  mw->build_formatted_hex_output();
+  const qint64 elapsedMs = timer.elapsed();
+  qInfo("loaded and laid out 16 MiB in %lld ms", elapsedMs);
+  QCOMPARE(mw->hexViewModel.rowCount(), 1024 * 1024);
+  QCOMPARE(mw->hexViewModel.index(1024 * 1024 - 1, 16).data().toString(), QString("ZZZZZZZZZZZZZZZZ"));
+  QVERIFY2(elapsedMs < 2000, qPrintable(QString("took %1 ms").arg(elapsedMs)));
 }
 
 void MainWindowTest::writeDoesNotLoadPreviousRead() {
