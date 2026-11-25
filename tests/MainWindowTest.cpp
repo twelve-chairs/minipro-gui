@@ -1074,7 +1074,7 @@ void MainWindowTest::cancelDuringWriteAsksBeforeStopping() {
   qputenv("FAKE_MINIPRO_DELAY", "10");
   auto mw = makeWindow();
   mw->targets.device->setCurrentText("AT28C256");
-  QList<bool> answers{true, false, true};  // write: yes; first force-stop: no; second: yes
+  QList answers{true, false, true};  // write: yes; first force-stop: no; second: yes
   QStringList titles;
   mw->confirmations.device_change = [&answers, &titles](const QString &title, const QString &) {
     titles << title;
