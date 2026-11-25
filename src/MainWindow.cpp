@@ -531,7 +531,7 @@ void MainWindow::async_process_error(QProcess::ProcessError error) {
 }
 
 void MainWindow::write_device() {
-  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+  if (const QString fileName = QFileDialog::getOpenFileName(window.get()); !fileName.isEmpty()) {
     write_file_to_device(fileName);
   }
 }
@@ -550,7 +550,7 @@ void MainWindow::write_file_to_device(const QString &file_name) {
 }
 
 void MainWindow::update_firmware() {
-  if (const QString fileName = QFileDialog::getOpenFileName(this); !fileName.isEmpty()) {
+  if (const QString fileName = QFileDialog::getOpenFileName(window.get()); !fileName.isEmpty()) {
     update_firmware_from_file(fileName);
   }
 }
