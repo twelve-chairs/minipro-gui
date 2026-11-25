@@ -246,7 +246,7 @@ void readTo(const std::string &target) {
   } else if (isSet("FAKE_MINIPRO_READ_HEX")) {
     std::string bytes = decodeHex(env("FAKE_MINIPRO_READ_HEX"));
     if (const std::string size = env("FAKE_MINIPRO_READ_SIZE"); !size.empty()) {
-      bytes.resize(std::max(bytes.size(), std::stoul(size)), static_cast<char>(0xFF));
+      bytes.resize(std::max(bytes.size(), static_cast<size_t>(std::stoull(size))), static_cast<char>(0xFF));
     }
     std::ofstream(target, std::ios::binary | std::ios::trunc) << bytes;
   }
