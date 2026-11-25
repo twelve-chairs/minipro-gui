@@ -22,7 +22,7 @@ For every check, **record a result even when it is clean**. A check with no
 recorded result can't be told apart from one that was skipped.
 
 **Never run the real `minipro` during the audit.** A programmer may be
-connected. Reason from the code and the fake (`tests/fake_minipro.sh`).
+connected. Reason from the code and the fake (`tests/fake_minipro.cpp`).
 
 ## 0. Preconditions
 

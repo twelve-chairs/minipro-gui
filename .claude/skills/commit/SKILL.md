@@ -79,7 +79,7 @@ If the fix needs a product decision, stop and ask the user.
 
 **Then check the tests cover the change.** New behavior gets tests. A bug fix
 gets the test that would have caught it. A change to how `minipro` output is
-parsed gets a case in `tests/fake_minipro.sh` and a test for malformed output.
+parsed gets a case in `tests/fake_minipro.cpp` and a test for malformed output.
 A new argument passed to `minipro` gets a test that checks the logged command
 line.
 

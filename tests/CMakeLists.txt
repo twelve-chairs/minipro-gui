@@ -20,6 +20,8 @@ function(add_qt_test name test_source)
   qt_add_executable(${name} ${test_source} ${ARGN})
   target_include_directories(${name} PRIVATE ${SRC_DIR})
   target_link_libraries(${name} PRIVATE Qt6::Core Qt6::Gui Qt6::Test Qt6::Widgets)
+  # A console program on Windows: qt_add_executable makes a GUI one, whose output is lost.
+  set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE OFF)
   add_test(NAME ${name} COMMAND ${name})
   # Run headless so tests work on CI and don't pop up windows locally.
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -31,6 +33,10 @@ add_qt_test(hexview_test
         ${SRC_DIR}/HexView.cpp
 )
 
+if (WIN32)
+  target_link_libraries(hexview_test PRIVATE psapi)  # GetProcessMemoryInfo, for the memory check
+endif ()
+
 add_qt_test(mainwindow_test
         MainWindowTest.cpp
         ${SRC_DIR}/MainWindow.h
@@ -39,5 +45,14 @@ add_qt_test(mainwindow_test
         ${SRC_DIR}/HexView.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../minipro-gui.qrc  # the window icon, as in the app
 )
+
+# The stand-in for the minipro CLI. MainWindowTest copies it into a temp dir as "minipro".
+# Plain C++ with no Qt, so it runs on Windows without Qt DLLs next to it.
+add_executable(fake_minipro fake_minipro.cpp)
+if (MSVC)
+  # std::getenv is fine here: the fake only reads its own FAKE_MINIPRO_* settings.
+  target_compile_definitions(fake_minipro PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif ()
+add_dependencies(mainwindow_test fake_minipro)
 target_compile_definitions(mainwindow_test PRIVATE
-        FAKE_MINIPRO_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/fake_minipro.sh")
+        FAKE_MINIPRO_SOURCE="$<TARGET_FILE:fake_minipro>")

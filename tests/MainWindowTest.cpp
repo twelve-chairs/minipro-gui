@@ -6,9 +6,19 @@
 #include <csignal>
 #include <memory>
 
-// MainWindow drives the `minipro` CLI found on PATH. These tests put tests/fake_minipro.sh on PATH
-// (as "minipro") so they are deterministic and need neither the real CLI nor a programmer.
-// FAKE_MINIPRO_SOURCE is defined by tests/CMakeLists.txt.
+// MainWindow drives the `minipro` CLI found on PATH. These tests put the fake_minipro program
+// (tests/fake_minipro.cpp) on PATH as "minipro", so they are deterministic and need neither the
+// real CLI nor a programmer. FAKE_MINIPRO_SOURCE is defined by tests/CMakeLists.txt.
+
+namespace {
+// The exit code QProcess reports when kill() stopped the process: the signal number on Unix,
+// and on Windows the code Qt's TerminateProcess() call uses.
+#ifdef Q_OS_WIN
+constexpr int killedExitCode = 0xf291;
+#else
+constexpr int killedExitCode = SIGKILL;
+#endif
+}  // namespace
 
 class MainWindowTest : public QObject {
  Q_OBJECT
@@ -121,7 +131,11 @@ void MainWindowTest::initTestCase() {
   emptyBinDir = root.filePath("empty");
   logPath = root.filePath("calls.log");
 
+#ifdef Q_OS_WIN
+  const QString fake = fakeBinDir + "/minipro.exe";
+#else
   const QString fake = fakeBinDir + "/minipro";
+#endif
   QVERIFY2(QFile::copy(FAKE_MINIPRO_SOURCE, fake), FAKE_MINIPRO_SOURCE);
   QVERIFY(QFile::setPermissions(fake, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
 
@@ -131,7 +145,8 @@ void MainWindowTest::initTestCase() {
 }
 
 void MainWindowTest::init() {
-  qputenv("PATH", fakeBinDir.toLocal8Bit() + ":" + originalPath);
+  qputenv("PATH", QDir::toNativeSeparators(fakeBinDir).toLocal8Bit() + QDir::listSeparator().toLatin1() +
+                      originalPath);
   qputenv("FAKE_MINIPRO_LOG", logPath.toLocal8Bit());
   qunsetenv("FAKE_MINIPRO_NO_PROGRAMMER");
   qunsetenv("FAKE_MINIPRO_PRESENCE");
@@ -144,7 +159,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN");
   qunsetenv("FAKE_MINIPRO_IGNORE_TERM");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
-  qunsetenv("FAKE_MINIPRO_INFO_TEXT");
+  qunsetenv("FAKE_MINIPRO_INFO_FILE");
   MainWindow::sync_timeout_ms = 10000;
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
@@ -795,9 +810,13 @@ void MainWindowTest::readsGoToPrivateFolderNotWorkingDirectory() {
 
   const QFileInfo read(mw->read_file);
   QVERIFY(read.absolutePath() != QDir::currentPath());
+#ifndef Q_OS_WIN
+  // On Windows, Qt doesn't read ACLs by default and reports these bits from the read-only flag;
+  // there the folder is private because it's in the user's own temp folder.
   QCOMPARE(QFileInfo(read.absolutePath()).permissions() & (QFile::ReadGroup | QFile::ReadOther |
                                                            QFile::WriteGroup | QFile::WriteOther),
            QFile::Permissions());
+#endif
 
   // The folder goes away with the window.
   const QString folder = read.absolutePath();
@@ -833,14 +852,14 @@ void MainWindowTest::oddDeviceInfoOutput_data() {
   QTest::addColumn<QString>("output");
   QTest::addColumn<QString>("name");    // expected Name field; empty: no device information
   QTest::addColumn<QString>("memory");
-  QTest::newRow("fields missing") << "Name: X28C64\\nPackage: DIP28\\n" << "X28C64" << "";
+  QTest::newRow("fields missing") << "Name: X28C64\nPackage: DIP28\n" << "X28C64" << "";
   QTest::newRow("unknown lines and order")
-      << "Something new: 1\\nMemory: 8192 Bytes\\nName: X28C64\\nVPP: 12V\\n" << "X28C64" << "8192 Bytes";
-  QTest::newRow("no fields") << "Unexpected output\\n" << "" << "";
+      << "Something new: 1\nMemory: 8192 Bytes\nName: X28C64\nVPP: 12V\n" << "X28C64" << "8192 Bytes";
+  QTest::newRow("no fields") << "Unexpected output\n" << "" << "";
   QTest::newRow("escape sequences")
-      << "\\033[1mWarning\\033[0m\\nName: X28C64\\033[K\\nMemory: 8192 Bytes\\n" << "X28C64" << "8192 Bytes";
+      << "\033[1mWarning\033[0m\nName: X28C64\033[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("very long line")
-      << "Name: X28C64\\nMemory: " + QString(100000, 'A') + "\\n" << "X28C64" << QString(100000, 'A');
+      << "Name: X28C64\nMemory: " + QString(100000, 'A') + "\n" << "X28C64" << QString(100000, 'A');
 }
 
 void MainWindowTest::oddDeviceInfoOutput() {
@@ -849,7 +868,13 @@ void MainWindowTest::oddDeviceInfoOutput() {
   QFETCH(QString, name);
   QFETCH(QString, memory);
   auto mw = makeWindow();
-  qputenv("FAKE_MINIPRO_INFO_TEXT", output.toLocal8Bit());
+  // Through a file: Windows limits an environment variable to 32,767 characters.
+  const QString infoFile = QDir(tempDir.path()).filePath("info.txt");
+  QFile info(infoFile);
+  QVERIFY(info.open(QFile::WriteOnly | QFile::Truncate));
+  info.write(output.toUtf8());
+  info.close();
+  qputenv("FAKE_MINIPRO_INFO_FILE", infoFile.toLocal8Bit());
   mw->targets.device->setCurrentText("AT28C256");
   QCOMPARE(mw->device_info.name->text(), name);
   // QLineEdit keeps at most maxLength() (32767) characters.
@@ -996,14 +1021,17 @@ void MainWindowTest::cancelStopsARead() {
   qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ff").repeated(16));
   auto mw = makeWindow();
   mw->read_device();
+#ifndef Q_OS_WIN
+  // (On Windows, QProcess::start() returns with the process already running.)
   QCOMPARE(mw->async_process->state(), QProcess::Starting);
+#endif
   QSignalSpy finished(mw->async_process, &QProcess::finished);
   mw->buttons.cancel->click();
   QTRY_VERIFY(mw->async_process == nullptr);
-  // Stopped with SIGKILL, which can't be lost; Qt reports the signal as the exit code. (This
+  // Stopped with kill(), which can't be lost; Qt reports SIGKILL as the exit code. (This
   // replaces a time limit, which the 3 s fallback kill() could meet by chance under load.)
   QCOMPARE(finished.count(), 1);
-  QCOMPARE(finished.at(0).at(0).toInt(), SIGKILL);
+  QCOMPARE(finished.at(0).at(0).toInt(), killedExitCode);
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
   QVERIFY(!mw->status_view->toPlainText().contains("[Error]: minipro crashed"));
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
@@ -1011,7 +1039,8 @@ void MainWindowTest::cancelStopsARead() {
 }
 
 void MainWindowTest::cancelStopsARunningRead() {
-  // Once minipro is running, Cancel asks it to stop with SIGTERM before any kill().
+  // Once minipro is running, Cancel asks it to stop with SIGTERM before any kill(). On Windows,
+  // where a console program can't be asked, it is killed at once.
   qputenv("FAKE_MINIPRO_DELAY", "10");
   auto mw = makeWindow();
   mw->read_device();
@@ -1020,12 +1049,19 @@ void MainWindowTest::cancelStopsARunningRead() {
   mw->buttons.cancel->click();
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(finished.count(), 1);
+#ifdef Q_OS_WIN
+  QCOMPARE(finished.at(0).at(0).toInt(), killedExitCode);
+#else
   QCOMPARE(finished.at(0).at(0).toInt(), SIGTERM);  // asked politely, no kill() needed
+#endif
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
 }
 
 void MainWindowTest::cancelKillsMiniproThatIgnoresTerm() {
   // If minipro ignores SIGTERM, Cancel still stops it: kill() follows after 3 s.
+#ifdef Q_OS_WIN
+  QSKIP("Windows has no SIGTERM: Cancel kills at once (cancelStopsARunningRead)");
+#endif
   qputenv("FAKE_MINIPRO_DELAY", "30");
   qputenv("FAKE_MINIPRO_IGNORE_TERM", "1");
   auto mw = makeWindow();
@@ -1040,7 +1076,7 @@ void MainWindowTest::cancelKillsMiniproThatIgnoresTerm() {
   // SIGKILL proves the kill() fallback stopped it. (No lower bound on the time: Qt's coarse
   // timers may fire up to 5% early.)
   QCOMPARE(finished.count(), 1);
-  QCOMPARE(finished.at(0).at(0).toInt(), SIGKILL);
+  QCOMPARE(finished.at(0).at(0).toInt(), killedExitCode);
   QVERIFY(mw->status_view->toPlainText().contains("[Cancelled]: minipro was stopped"));
 }
 
