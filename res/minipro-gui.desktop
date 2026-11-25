@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Minipro GUI
+GenericName=Chip Programmer
+Comment=GUI for the minipro TL866 series chip programmer CLI
+Exec=minipro-gui
+Icon=minipro-gui
+Terminal=false
+Categories=Development;Electronics;
+StartupWMClass=minipro-gui
