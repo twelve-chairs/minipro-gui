@@ -49,11 +49,17 @@ class MainWindowTest : public QObject {
   void readDevicePassesOnlyOptionFlags();
   void failedReadRestoresPlaceholder();
   void readWithNoDataShowsEmptyTable();
+  void failedReadNeverShowsPreviousData_data();
+  void failedReadNeverShowsPreviousData();
+  void readThatWritesNoFileDoesNotShowPreviousRead();
+  void writeDoesNotLoadPreviousRead();
+  void readReportsMiniproFailingToStart();
 
  private:
   using WindowPtr = std::unique_ptr<MainWindow, MainWindowDeleter>;
   WindowPtr makeWindow();
   QStringList loggedCalls() const;
+  static void readFfRow(MainWindow &mw);
 
   QTemporaryDir tempDir;
   QString fakeBinDir;
@@ -87,6 +93,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_NO_PROGRAMMER");
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
+  qunsetenv("FAKE_MINIPRO_CRASH");
   QFile::remove(logPath);
   QFile::remove("temp.bin");
 }
@@ -352,6 +359,64 @@ void MainWindowTest::readWithNoDataShowsEmptyTable() {
   QTRY_COMPARE(mw->hexViewModel.rowCount(), 0);
   QCOMPARE(mw->hexViewModel.columnCount(), 17);
   QCOMPARE(mw->hexTableView->model()->columnCount(), 17);
+}
+
+// Reads 16 bytes of 0xFF so later tests can tell old data apart from the placeholder.
+void MainWindowTest::readFfRow(MainWindow &mw) {
+  qputenv("FAKE_MINIPRO_READ_HEX", QByteArray("ff").repeated(16));
+  mw.read_device();
+  QTRY_COMPARE(mw.hexViewModel.index(0, 0).data().toString(), QString("FF"));
+}
+
+void MainWindowTest::failedReadNeverShowsPreviousData_data() {
+  QTest::addColumn<QByteArray>("exitCode");
+  QTest::addColumn<bool>("crash");
+  QTest::addColumn<QString>("message");
+  QTest::newRow("exit 1") << QByteArray("1") << false << "[Error]: minipro exited with code 1";
+  QTest::newRow("exit 2") << QByteArray("2") << false << "[Error]: minipro exited with code 2";
+  QTest::newRow("crash") << QByteArray() << true << "[Error]: minipro crashed";
+}
+
+void MainWindowTest::failedReadNeverShowsPreviousData() {
+  // Regression: any exit code other than 1, or a crash, loaded temp.bin from the previous read.
+  QFETCH(QByteArray, exitCode);
+  QFETCH(bool, crash);
+  QFETCH(QString, message);
+  auto mw = makeWindow();
+  readFfRow(*mw);
+
+  if (crash) qputenv("FAKE_MINIPRO_CRASH", "1");
+  else qputenv("FAKE_MINIPRO_READ_EXIT", exitCode);
+  mw->read_device();
+  QTRY_VERIFY(mw->status_view->toPlainText().contains(message));
+  QCOMPARE(mw->hexViewModel.rowCount(), 8);
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+}
+
+void MainWindowTest::readThatWritesNoFileDoesNotShowPreviousRead() {
+  // Regression: temp.bin was never removed, so a read that wrote nothing showed the last chip.
+  auto mw = makeWindow();
+  readFfRow(*mw);
+  qunsetenv("FAKE_MINIPRO_READ_HEX");  // the next read succeeds but writes no file
+  mw->read_device();
+  QTRY_COMPARE(mw->hexViewModel.rowCount(), 0);
+}
+
+void MainWindowTest::writeDoesNotLoadPreviousRead() {
+  // Regression: finishing a write loaded temp.bin, showing the last read as the chip contents.
+  auto mw = makeWindow();
+  readFfRow(*mw);
+  mw->write_file_to_device("/images/fw.bin");
+  QTRY_COMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+  QVERIFY(QFile::exists("temp.bin"));  // the file was there to (wrongly) load
+}
+
+void MainWindowTest::readReportsMiniproFailingToStart() {
+  auto mw = makeWindow();
+  qputenv("PATH", emptyBinDir.toLocal8Bit());
+  mw->read_device();
+  QTRY_VERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro"));
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
 
 QTEST_MAIN(MainWindowTest)

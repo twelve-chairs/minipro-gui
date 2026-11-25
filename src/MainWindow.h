@@ -40,7 +40,8 @@ class MainWindow : public QMainWindow {
   void select_device(const QString & = "");
   void async_process_err_output() const;
   void async_process_std_output() const;
-  void read_device_output(int, QProcess::ExitStatus);
+  void async_process_finished(int, QProcess::ExitStatus);
+  void async_process_error(QProcess::ProcessError);
 
   void run_command();
   void read_device();
@@ -114,7 +115,11 @@ class MainWindow : public QMainWindow {
   void write_file_to_device(const QString &);
   void update_firmware_from_file(const QString &);
   static QString run_process(QPlainTextEdit &, const QStringList &, const QString &);
-  void run_async_process(QStringList &, const QString &);
+  // What the running async process is doing, so its result is handled correctly.
+  enum class AsyncOperation { Read, Write, FirmwareUpdate };
+  AsyncOperation async_operation = AsyncOperation::Read;
+
+  void run_async_process(const QStringList &, AsyncOperation, const QString & = "stderr");
   void build_default_hex_output();
   void build_formatted_hex_output();
 };

@@ -7,6 +7,7 @@
 #   FAKE_MINIPRO_NO_PROGRAMMER  if set, --presence_check reports no programmer
 #   FAKE_MINIPRO_READ_HEX     hex string written (as bytes) to the -r target file
 #   FAKE_MINIPRO_READ_EXIT    exit code for -r / -w / -F operations (default 0)
+#   FAKE_MINIPRO_CRASH        if set, device operations kill themselves with SIGKILL (a crash)
 
 if [ -n "$FAKE_MINIPRO_LOG" ]; then
   echo "$*" >> "$FAKE_MINIPRO_LOG"
@@ -58,4 +59,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+if [ -n "$FAKE_MINIPRO_CRASH" ]; then
+  kill -9 $$
+fi
 exit "${FAKE_MINIPRO_READ_EXIT:-0}"

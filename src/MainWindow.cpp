@@ -137,9 +137,11 @@ void MainWindow::initializer() {
   status_view->setFont(monospace_font);
 }
 
-void MainWindow::run_async_process(QStringList &process_arguments,
-                                   const QString &type = "stderr") {
+void MainWindow::run_async_process(const QStringList &process_arguments,
+                                   AsyncOperation operation,
+                                   const QString &type) {
   QString process_arguments_string = "";
+  async_operation = operation;
   async_process = new QProcess();
   for (auto const &each : process_arguments) {
     process_arguments_string += each + " ";
@@ -154,7 +156,11 @@ void MainWindow::run_async_process(QStringList &process_arguments,
   connect(async_process,
           SIGNAL(finished(int,QProcess::ExitStatus)),
           this,
-          SLOT(read_device_output(int,QProcess::ExitStatus)));
+          SLOT(async_process_finished(int,QProcess::ExitStatus)));
+  connect(async_process,
+          SIGNAL(errorOccurred(QProcess::ProcessError)),
+          this,
+          SLOT(async_process_error(QProcess::ProcessError)));
 
   status_view->appendPlainText("[Output]: ");
   status_view->ensureCursorVisible();
@@ -354,14 +360,36 @@ void MainWindow::run_command() {
 void MainWindow::read_device() {
   QStringList arguments;
   arguments << "-p" << device << "-r" << temp_file_name << parse_option_checkboxes();
-  run_async_process(arguments);
+  // Remove the previous read first, so a read that writes nothing can't show old data.
+  QFile::remove(temp_file_name);
+  build_default_hex_output();
+  run_async_process(arguments, AsyncOperation::Read);
 }
 
-void MainWindow::read_device_output(int code, QProcess::ExitStatus) {
-  hexViewModel.clearHexTable();
-  if (code != 1) {
+void MainWindow::async_process_finished(int code, QProcess::ExitStatus status) {
+  const bool succeeded = status == QProcess::NormalExit && code == 0;
+  if (!succeeded) {
+    status_view->appendPlainText(status == QProcess::CrashExit
+                                     ? QString("[Error]: minipro crashed")
+                                     : QString("[Error]: minipro exited with code %1").arg(code));
+    status_view->ensureCursorVisible();
+  }
+  if (async_operation == AsyncOperation::Read && succeeded) {
+    hexViewModel.clearHexTable();
     build_formatted_hex_output();
   } else {
+    // A failed read has no data to show, and after a write or firmware update the last read
+    // no longer matches the chip.
+    build_default_hex_output();
+  }
+}
+
+void MainWindow::async_process_error(QProcess::ProcessError error) {
+  // FailedToStart never emits finished(), so report it here; other errors are followed by
+  // finished() and reported there.
+  if (error == QProcess::FailedToStart) {
+    status_view->appendPlainText("[Error]: could not start minipro: " + async_process->errorString());
+    status_view->ensureCursorVisible();
     build_default_hex_output();
   }
 }
@@ -375,7 +403,7 @@ void MainWindow::write_device() {
 void MainWindow::write_file_to_device(const QString &file_name) {
   QStringList arguments;
   arguments << "-p" << device << "-w" << file_name << parse_option_checkboxes();
-  run_async_process(arguments);
+  run_async_process(arguments, AsyncOperation::Write);
 }
 
 void MainWindow::update_firmware() {
@@ -388,7 +416,7 @@ void MainWindow::update_firmware_from_file(const QString &file_name) {
   // No checkbox flags: minipro handles -F as soon as it is parsed and ignores everything after it.
   QStringList arguments;
   arguments << "-F" << file_name;
-  run_async_process(arguments);
+  run_async_process(arguments, AsyncOperation::FirmwareUpdate);
 }
 
 void MainWindow::build_default_hex_output() {
