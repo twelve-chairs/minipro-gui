@@ -70,18 +70,3 @@ jobs:
           cmake -A x64 -S tests -B tests/build
           cmake --build tests/build --config $env:BUILD_TYPE
           ctest --test-dir tests/build -C $env:BUILD_TYPE --output-on-failure
-      - name: Diagnose (temporary) - stack of the very long line crash
-        if: failure()
-        shell: pwsh
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QPA_FONTDIR: C:/Windows/Fonts
-        run: |
-          $exe = Resolve-Path "tests/build/$env:BUILD_TYPE/mainwindow_test.exe"
-          $cdb = Get-ChildItem "C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe" -ErrorAction SilentlyContinue
-          if (-not $cdb) { "cdb not found"; exit 0 }
-          $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
-          # -g: skip the initial break; at the exception, print the stack and quit.
-          & $cdb.FullName -g -lines -y "srv*;$(Split-Path $exe)" -c ".lines -e; .ecxr; kn 60; q" $exe 'oddDeviceInfoOutput:very long line' 2>&1 |
-            Select-String -NotMatch '^(ModLoad|Symbol search path|Executable search path)' | Select-Object -Last 120
-          exit 0

@@ -24,7 +24,8 @@
 //   FAKE_MINIPRO_IGNORE_TERM  if set, ignore SIGTERM (only SIGKILL stops it; no effect on Windows)
 //   FAKE_MINIPRO_VERSION_TEXT if set, --version prints this to stderr instead (\n, \t, \r, \e,
 //                             \\ and \0NNN escapes, like printf %b)
-//   FAKE_MINIPRO_INFO_TEXT    if set, -d prints this to stderr instead (same escapes)
+//   FAKE_MINIPRO_INFO_FILE    if set, -d prints this file's contents to stderr instead (a file,
+//                             because Windows limits an environment variable to 32,767 characters)
 
 #include <chrono>
 #include <csignal>
@@ -139,8 +140,9 @@ int listOrInfo(const std::vector<std::string> &args) {
     for (const char *name : {"W27C512", "AT28C256", "27C256", "AT28C256"}) std::cout << name << eol;
     return 0;
   }
-  if (isSet("FAKE_MINIPRO_INFO_TEXT")) {
-    std::cerr << unescape(env("FAKE_MINIPRO_INFO_TEXT"));
+  if (isSet("FAKE_MINIPRO_INFO_FILE")) {
+    std::ifstream info(env("FAKE_MINIPRO_INFO_FILE"), std::ios::binary);
+    std::cerr << info.rdbuf();
     return 0;
   }
   const std::string device = args.size() > 1 ? args[1] : std::string();

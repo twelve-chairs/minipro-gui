@@ -24,14 +24,7 @@ function(add_qt_test name test_source)
   set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE OFF)
   add_test(NAME ${name} COMMAND ${name})
   # Run headless so tests work on CI and don't pop up windows locally.
-  set(test_environment "QT_QPA_PLATFORM=offscreen")
-  if (WIN32)
-    # Qt ships no fonts, and offscreen doesn't find the system's on Windows. Without one,
-    # laying out a very long line of output takes minutes.
-    file(TO_CMAKE_PATH "$ENV{WINDIR}/Fonts" windows_fonts)
-    list(APPEND test_environment "QT_QPA_FONTDIR=${windows_fonts}")
-  endif ()
-  set_tests_properties(${name} PROPERTIES ENVIRONMENT "${test_environment}")
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
 add_qt_test(hexview_test

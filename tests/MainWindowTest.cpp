@@ -159,7 +159,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN");
   qunsetenv("FAKE_MINIPRO_IGNORE_TERM");
   qunsetenv("FAKE_MINIPRO_VERSION_TEXT");
-  qunsetenv("FAKE_MINIPRO_INFO_TEXT");
+  qunsetenv("FAKE_MINIPRO_INFO_FILE");
   MainWindow::sync_timeout_ms = 10000;
   qunsetenv("FAKE_MINIPRO_READ_HEX");
   qunsetenv("FAKE_MINIPRO_READ_EXIT");
@@ -852,14 +852,14 @@ void MainWindowTest::oddDeviceInfoOutput_data() {
   QTest::addColumn<QString>("output");
   QTest::addColumn<QString>("name");    // expected Name field; empty: no device information
   QTest::addColumn<QString>("memory");
-  QTest::newRow("fields missing") << "Name: X28C64\\nPackage: DIP28\\n" << "X28C64" << "";
+  QTest::newRow("fields missing") << "Name: X28C64\nPackage: DIP28\n" << "X28C64" << "";
   QTest::newRow("unknown lines and order")
-      << "Something new: 1\\nMemory: 8192 Bytes\\nName: X28C64\\nVPP: 12V\\n" << "X28C64" << "8192 Bytes";
-  QTest::newRow("no fields") << "Unexpected output\\n" << "" << "";
+      << "Something new: 1\nMemory: 8192 Bytes\nName: X28C64\nVPP: 12V\n" << "X28C64" << "8192 Bytes";
+  QTest::newRow("no fields") << "Unexpected output\n" << "" << "";
   QTest::newRow("escape sequences")
-      << "\\033[1mWarning\\033[0m\\nName: X28C64\\033[K\\nMemory: 8192 Bytes\\n" << "X28C64" << "8192 Bytes";
+      << "\033[1mWarning\033[0m\nName: X28C64\033[K\nMemory: 8192 Bytes\n" << "X28C64" << "8192 Bytes";
   QTest::newRow("very long line")
-      << "Name: X28C64\\nMemory: " + QString(100000, 'A') + "\\n" << "X28C64" << QString(100000, 'A');
+      << "Name: X28C64\nMemory: " + QString(100000, 'A') + "\n" << "X28C64" << QString(100000, 'A');
 }
 
 void MainWindowTest::oddDeviceInfoOutput() {
@@ -868,7 +868,13 @@ void MainWindowTest::oddDeviceInfoOutput() {
   QFETCH(QString, name);
   QFETCH(QString, memory);
   auto mw = makeWindow();
-  qputenv("FAKE_MINIPRO_INFO_TEXT", output.toLocal8Bit());
+  // Through a file: Windows limits an environment variable to 32,767 characters.
+  const QString infoFile = QDir(tempDir.path()).filePath("info.txt");
+  QFile info(infoFile);
+  QVERIFY(info.open(QFile::WriteOnly | QFile::Truncate));
+  info.write(output.toUtf8());
+  info.close();
+  qputenv("FAKE_MINIPRO_INFO_FILE", infoFile.toLocal8Bit());
   mw->targets.device->setCurrentText("AT28C256");
   QCOMPARE(mw->device_info.name->text(), name);
   // QLineEdit keeps at most maxLength() (32767) characters.
