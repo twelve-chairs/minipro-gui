@@ -52,3 +52,18 @@ add_executable(fake_minipro fake_minipro.cpp)
 add_dependencies(mainwindow_test fake_minipro)
 target_compile_definitions(mainwindow_test PRIVATE
         FAKE_MINIPRO_SOURCE="$<TARGET_FILE:fake_minipro>")
+
+# Not a test: renders the README screenshot from the real UI (tests/update_screenshot.sh).
+qt_add_executable(screenshot
+        screenshot.cpp
+        ${SRC_DIR}/MainWindow.h
+        ${SRC_DIR}/MainWindow.cpp
+        ${SRC_DIR}/HexView.h
+        ${SRC_DIR}/HexView.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../minipro-gui.qrc
+)
+target_include_directories(screenshot PRIVATE ${SRC_DIR})
+target_link_libraries(screenshot PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+set_target_properties(screenshot PROPERTIES WIN32_EXECUTABLE OFF)
+add_dependencies(screenshot fake_minipro)
+target_compile_definitions(screenshot PRIVATE FAKE_MINIPRO_SOURCE="$<TARGET_FILE:fake_minipro>")
