@@ -20,7 +20,6 @@
 #include <QTableView>
 #include <QTemporaryDir>
 #include <QThread>
-#include <functional>
 #include <iostream>
 
 namespace {
@@ -28,11 +27,12 @@ namespace {
 // The bytes the fake "reads": a line of text, then erased (0xFF) bytes, 8 rows in all.
 QByteArray sampleImage() {
   QByteArray image("minipro-gui: a GUI for the minipro CLI, for TL866II+, T48, T56 and T76 programmers.");
-  image.append(QByteArray(128 - image.size(), '\xFF'));
+  image.append(QByteArray(128 - image.size(), static_cast<char>(0xFF)));
   return image;
 }
 
-bool waitFor(const std::function<bool()> &done, int timeout_ms) {
+template <typename Predicate>
+bool waitFor(Predicate done, int timeout_ms) {
   QElapsedTimer timer;
   timer.start();
   while (!done()) {
@@ -51,10 +51,8 @@ int fail(const char *message) {
 }  // namespace
 
 int main(int argc, char *argv[]) {
-  // The read goes to <temp>/minipro-gui-XXXXXX/read.bin, which the Output pane shows. A short,
-  // fixed temp folder and app name keep that line the same on every run (see below).
-  qputenv("TMPDIR", "/tmp");
   QApplication application(argc, argv);
+  // The read goes to <temp>/minipro-gui-<random>/read.bin, which the Output pane shows (see below).
   QCoreApplication::setApplicationName("minipro-gui");
   if (argc != 2) return fail("usage: screenshot <output.png>");
   const QString output = QDir::current().absoluteFilePath(QString::fromLocal8Bit(argv[1]));
@@ -118,8 +116,11 @@ int main(int argc, char *argv[]) {
   }
   // QTemporaryDir's random suffix would change the image on every run; show the pattern instead.
   if (auto *output_pane = window->findChild<QPlainTextEdit *>(); output_pane != nullptr) {
-    static const QRegularExpression random_suffix("(minipro-gui-)[A-Za-z0-9]{6}");
-    output_pane->setPlainText(output_pane->toPlainText().replace(random_suffix, "\\1XXXXXX"));
+    // The temp folder differs per machine and the suffix per run, and the folder can name the
+    // user: show them as $TMPDIR and XXXXXX, so the image is the same everywhere and every time.
+    static const QRegularExpression read_folder(R"(\S+/minipro-gui-[A-Za-z0-9]{6}/)");
+    output_pane->setPlainText(
+        output_pane->toPlainText().replace(read_folder, "$TMPDIR/minipro-gui-XXXXXX/"));
     output_pane->moveCursor(QTextCursor::End);  // back to the read, as the app leaves it
     output_pane->ensureCursorVisible();
   }
