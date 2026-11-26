@@ -737,3 +737,11 @@ tests/build/
 
 # Environment files (may hold secrets)
 .env*
+
+# Signing certificates and keys (Developer ID .p12, App Store Connect API .p8, ...): never commit
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.pem
+*.key

@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -54,12 +55,11 @@ namespace {
 // The variable's value; empty if it isn't set.
 std::string env(const char *name) {
 #ifdef _WIN32
-  char *value = nullptr;
-  size_t length = 0;
-  if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) return {};
-  std::string result(value);
-  free(value);
-  return result;
+  char *raw = nullptr;
+  if (size_t length = 0; _dupenv_s(&raw, &length, name) != 0 || raw == nullptr) return {};
+  // _dupenv_s allocates with malloc; the unique_ptr frees it.
+  const std::unique_ptr<char, decltype(&std::free)> value(raw, &std::free);
+  return std::string(value.get());
 #else
   const char *value = std::getenv(name);
   return value == nullptr ? std::string() : std::string(value);
@@ -219,7 +219,7 @@ int firmwareUpdate(const std::string &file) {
 }
 
 // --version and --presence_check.
-int query(const std::string &first) {
+int query(std::string_view first) {
   if (first == "--version") {
     if (isSet("FAKE_MINIPRO_VERSION_TEXT")) {
       std::cerr << unescape(env("FAKE_MINIPRO_VERSION_TEXT"));
@@ -257,13 +257,13 @@ void readTo(const std::string &target) {
 int deviceOperation(const std::vector<std::string> &args, const std::string &joined) {
   size_t i = 0;
   while (i < args.size()) {
-    const bool hasValue = i + 1 < args.size();
-    if (args[i] == "-r" && hasValue) {
+    if (const bool hasValue = i + 1 < args.size(); args[i] == "-r" && hasValue) {
       readTo(args[i + 1]);
       i++;  // skip the file
     } else if (args[i] == "-F") {
-      const int code = firmwareUpdate(hasValue ? args[i + 1] : std::string());
-      if (code >= 0) return code;
+      if (const int code = firmwareUpdate(hasValue ? args[i + 1] : std::string()); code >= 0) {
+        return code;
+      }
       i++;  // skip the file
     }
     i++;
