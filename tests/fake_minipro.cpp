@@ -52,13 +52,21 @@
 
 namespace {
 
+#ifdef _WIN32
+// Frees what the C runtime malloc'd. A function object rather than &std::free: taking the address
+// of a standard library function isn't allowed.
+struct FreeDeleter {
+  void operator()(char *pointer) const { std::free(pointer); }
+};
+#endif
+
 // The variable's value; empty if it isn't set.
 std::string env(const char *name) {
 #ifdef _WIN32
   char *raw = nullptr;
   if (size_t length = 0; _dupenv_s(&raw, &length, name) != 0 || raw == nullptr) return {};
   // _dupenv_s allocates with malloc; the unique_ptr frees it.
-  const std::unique_ptr<char, decltype(&std::free)> value(raw, &std::free);
+  const std::unique_ptr<char, FreeDeleter> value(raw);
   return std::string(value.get());
 #else
   const char *value = std::getenv(name);
