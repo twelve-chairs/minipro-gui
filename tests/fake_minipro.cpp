@@ -37,7 +37,6 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -52,22 +51,17 @@
 
 namespace {
 
-#ifdef _WIN32
-// Frees what the C runtime malloc'd. A function object rather than &std::free: taking the address
-// of a standard library function isn't allowed.
-struct FreeDeleter {
-  void operator()(char *pointer) const { std::free(pointer); }
-};
-#endif
-
 // The variable's value; empty if it isn't set.
 std::string env(const char *name) {
 #ifdef _WIN32
-  char *raw = nullptr;
-  if (size_t length = 0; _dupenv_s(&raw, &length, name) != 0 || raw == nullptr) return {};
-  // _dupenv_s allocates with malloc; the unique_ptr frees it.
-  const std::unique_ptr<char, FreeDeleter> value(raw);
-  return std::string(value.get());
+  // GetEnvironmentVariableA fills our own string: unlike getenv it isn't deprecated by MSVC, and
+  // unlike _dupenv_s it returns no malloc'd buffer that would need free().
+  const DWORD size = GetEnvironmentVariableA(name, nullptr, 0);  // including the terminating NUL
+  if (size == 0) return {};
+  std::string value(size, '\0');
+  const DWORD length = GetEnvironmentVariableA(name, value.data(), size);
+  value.resize(length);
+  return value;
 #else
   const char *value = std::getenv(name);
   return value == nullptr ? std::string() : std::string(value);
