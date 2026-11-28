@@ -1,0 +1,36 @@
+name: SonarQube Cloud
+
+# CI-based analysis with code coverage (sonar-project.properties). Automatic Analysis is off for
+# the project: it can't import coverage, and the two can't both run.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'master'
+  pull_request:
+    branches:
+      - 'master'
+
+# Read-only token. SonarQube Cloud's GitHub app decorates pull requests, not this workflow.
+permissions:
+  contents: read
+
+jobs:
+  Analysis:
+    # GitHub gives no secrets to pull requests from forks, so SONAR_TOKEN would be empty there.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # full history, for blame and new-code detection
+          persist-credentials: false  # later steps don't use git
+      - name: Build and run the tests with coverage
+        shell: bash
+        run: |
+          brew install ninja cmake qt
+          tests/coverage.sh
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
