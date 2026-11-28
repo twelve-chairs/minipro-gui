@@ -14,6 +14,27 @@ enable_testing()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
+# Code coverage for SonarQube Cloud (tests/coverage.sh). Clang only: source-based coverage, read
+# back with llvm-profdata and llvm-cov. The compilation database tells Sonar's C++ analyzer how
+# each file was compiled.
+option(COVERAGE "Build with clang source-based code coverage" OFF)
+if (COVERAGE)
+  if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "COVERAGE needs clang (source-based coverage), not ${CMAKE_CXX_COMPILER_ID}")
+  endif ()
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+endif ()
+
+# Instruments one target for coverage when COVERAGE is on. Not the fake minipro or the screenshot
+# tool: they aren't app code, and the fake would write a profile on every call.
+function(enable_coverage target)
+  if (COVERAGE)
+    target_compile_options(${target} PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+    # PUBLIC: anything linking the instrumented app_objects needs the profile runtime too.
+    target_link_options(${target} PUBLIC -fprofile-instr-generate)
+  endif ()
+endfunction()
+
 # One executable per QtTest class (each file has its own QTEST_MAIN).
 # Usage: add_qt_test(<name> <test source> [extra sources...])
 function(add_qt_test name test_source)
@@ -25,6 +46,7 @@ function(add_qt_test name test_source)
   add_test(NAME ${name} COMMAND ${name})
   # Run headless so tests work on CI and don't pop up windows locally.
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  enable_coverage(${name})
 endfunction()
 
 add_qt_test(hexview_test
@@ -48,6 +70,15 @@ add_library(app_objects OBJECT
 )
 target_include_directories(app_objects PUBLIC ${SRC_DIR})
 target_link_libraries(app_objects PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
+enable_coverage(app_objects)
+
+if (COVERAGE)
+  # Compiled only so it is in the compilation database: Sonar's C++ analyzer skips any file that
+  # isn't. No test runs it (QTEST_MAIN provides main), so sonar-project.properties leaves it out
+  # of coverage.
+  add_library(app_main OBJECT ${SRC_DIR}/main.cpp)
+  target_link_libraries(app_main PRIVATE app_objects)
+endif ()
 
 add_qt_test(mainwindow_test MainWindowTest.cpp)
 target_link_libraries(mainwindow_test PRIVATE app_objects)
