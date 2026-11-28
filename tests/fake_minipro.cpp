@@ -22,6 +22,8 @@
 //   FAKE_MINIPRO_INFO_FAIL    if set, -d reports an unknown device and exits 1
 //   FAKE_MINIPRO_CRLF         if set, -l and -d use Windows line endings
 //   FAKE_MINIPRO_LIST_EMPTY   if set, -l prints no devices
+//   FAKE_MINIPRO_LIST_BANNER  if set, -l prints the programmer and serial code lines to stdout
+//                             before the devices, the first device ending in \e[K
 //   FAKE_MINIPRO_TL866A       if set, -F asks like minipro does for a TL866A/CS (numbered menu)
 //   FAKE_MINIPRO_FW_PROMPT_UNKNOWN  if set, -F asks a question the app doesn't recognise
 //   FAKE_MINIPRO_IGNORE_TERM  if set, ignore SIGTERM (only SIGKILL stops it; no effect on Windows)
@@ -157,6 +159,10 @@ int listOrInfo(const std::vector<std::string> &args) {
   const std::string eol = isSet("FAKE_MINIPRO_CRLF") ? "\r\n" : "\n";
   if (args[0] == "-l") {
     if (isSet("FAKE_MINIPRO_LIST_EMPTY")) return 0;
+    if (isSet("FAKE_MINIPRO_LIST_BANNER")) {
+      std::cout << "Found TL866II+ 04.2.132 (0x284)" << eol << "Serial code: ABCDEF0123456789" << eol
+                << "W27C512\x1b[K" << eol;
+    }
     for (const char *name : {"W27C512", "AT28C256", "27C256", "AT28C256"}) std::cout << name << eol;
     return 0;
   }

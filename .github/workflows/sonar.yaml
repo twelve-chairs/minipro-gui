@@ -17,8 +17,12 @@ permissions:
 
 jobs:
   Analysis:
-    # GitHub gives no secrets to pull requests from forks, so SONAR_TOKEN would be empty there.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # GitHub gives no Actions secrets to pull requests from forks or from Dependabot, so
+    # SONAR_TOKEN would be empty there.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

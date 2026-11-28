@@ -1,0 +1,19 @@
+# Dependabot version updates. The workflows pin every action to a commit SHA with its version in a
+# comment (actions/checkout@<sha> # v7.0.1); Dependabot updates both together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    # Wait a week after a release before proposing it, so a compromised or broken release is
+    # more likely to be caught and pulled first.
+    cooldown:
+      default-days: 7
+    # One pull request for all actions, rather than one per action.
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci
