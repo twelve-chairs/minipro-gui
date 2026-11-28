@@ -7,6 +7,7 @@
 [![Build MacOS](https://github.com/twelve-chairs/minipro-gui/actions/workflows/macos.yaml/badge.svg)](https://github.com/twelve-chairs/minipro-gui/actions/workflows/macos.yaml)
 [![Build Windows](https://github.com/twelve-chairs/minipro-gui/actions/workflows/windows.yaml/badge.svg)](https://github.com/twelve-chairs/minipro-gui/actions/workflows/windows.yaml)
 [![CodeQL](https://github.com/twelve-chairs/minipro-gui/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/twelve-chairs/minipro-gui/actions/workflows/github-code-scanning/codeql) 
+[![Dependabot](https://img.shields.io/badge/Dependabot-enabled-025E8C?logo=dependabot)](https://github.com/twelve-chairs/minipro-gui/security)
 [![Sonar Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=twelve-chairs_minipro-gui&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=twelve-chairs_minipro-gui)
 [![Sonar Coverage](https://sonarcloud.io/api/project_badges/measure?project=twelve-chairs_minipro-gui&metric=coverage)](https://sonarcloud.io/component_measures?id=twelve-chairs_minipro-gui&metric=coverage)
 
