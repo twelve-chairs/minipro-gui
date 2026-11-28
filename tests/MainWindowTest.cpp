@@ -4,6 +4,10 @@
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QScreen>
+#include <QMessageBox>
+#include <QFileDialog>
+#include <QTimer>
+#include <functional>
 #include <csignal>
 #include <memory>
 
@@ -21,6 +25,60 @@ constexpr auto fakeFileName = "minipro.exe";
 constexpr int killedExitCode = SIGKILL;
 constexpr auto fakeFileName = "minipro";
 #endif
+
+// Runs handle(dialog) once a modal dialog is open, from inside the dialog's own event loop: the
+// code under test blocks in exec() until handle closes it. Gives up after 10 s, so a dialog that
+// never opens can't leave a handler waiting for the next test's.
+void whenModalOpens(const std::function<void(QWidget *)> &handle) {
+  auto *timer = new QTimer;
+  auto *waited = new QElapsedTimer;
+  waited->start();
+  QObject::connect(timer, &QTimer::timeout, [timer, waited, handle] {
+    QWidget *modal = QApplication::activeModalWidget();
+    const bool open = modal && modal->isVisible();
+    if (!open && waited->elapsed() < 10000) return;
+    timer->stop();
+    timer->deleteLater();
+    delete waited;
+    if (open) handle(modal);
+  });
+  timer->start(10);
+}
+
+// Presses a QMessageBox's button: its default one if which is NoButton. Records the box's text
+// and whether No was its default, then closes anything else.
+void answerMessageBox(QWidget *dialog, QMessageBox::StandardButton which, QString *text, bool *defaultIsNo) {
+  auto *box = qobject_cast<QMessageBox *>(dialog);
+  if (!box) {
+    dialog->close();
+    return;
+  }
+  *text = box->text();  // not the title: on macOS, QMessageBox shows none
+  *defaultIsNo = box->defaultButton() == box->button(QMessageBox::No);
+  QAbstractButton *button = which == QMessageBox::NoButton ? box->defaultButton() : box->button(which);
+  if (button) {
+    button->click();
+  } else {
+    box->reject();
+  }
+}
+
+// Picks file in a QFileDialog, or cancels it if file is empty. Types the path into the dialog's
+// file name field, as a user can: selectFile() does nothing until the dialog has listed the folder.
+void answerFileDialog(QWidget *dialog, const QString &file, bool *opened) {
+  auto *fileDialog = qobject_cast<QFileDialog *>(dialog);
+  auto *nameField = fileDialog ? fileDialog->findChild<QLineEdit *>("fileNameEdit") : nullptr;
+  *opened = nameField != nullptr;
+  if (nameField && !file.isEmpty()) {
+    nameField->setText(QDir::toNativeSeparators(file));
+    // Through QDialog: QFileDialog::accept() is protected, but it is the override that runs.
+    static_cast<QDialog *>(fileDialog)->accept();
+  } else if (auto *any = qobject_cast<QDialog *>(dialog)) {
+    any->reject();
+  } else {
+    dialog->close();
+  }
+}
 }  // namespace
 
 class MainWindowTest : public QObject {
@@ -50,6 +108,8 @@ class MainWindowTest : public QObject {
   void queryPromptDoesNotHang();
   void slowQueryIsStopped();
   void startFailureIsReportedNotParsed();
+  void queryReportsMiniproThatCannotRun();
+  void deviceListSkipsSerialCodeBanner();
   void runCommandDoesNotBlockAndKeepsOrResetsView();
   void deviceListIsSortedAndDeduplicated();
   void emptyDeviceListDisablesDeviceOperations();
@@ -84,6 +144,8 @@ class MainWindowTest : public QObject {
   void readsGoToPrivateFolderNotWorkingDirectory();
   void writeDoesNotLoadPreviousRead();
   void readReportsMiniproFailingToStart();
+  void readReportsMiniproThatCannotRun();
+  void readWithoutTempFolderIsRefused();
 
   // One device operation at a time
   void controlsDisabledWhileOperationRuns();
@@ -113,6 +175,10 @@ class MainWindowTest : public QObject {
   void writeAsksAndCanBeCancelled();
   void eraseAsksAndCanBeCancelled();
   void checksDoNotAsk();
+  void firmwareDialogDefaultsToNo();
+  void deviceChangeDialogDefaultsToNo();
+  void writeAsksForAFile();
+  void updateFirmwareAsksForAFile();
 
  private:
   using WindowPtr = std::unique_ptr<MainWindow>;
@@ -123,6 +189,7 @@ class MainWindowTest : public QObject {
   QTemporaryDir tempDir;
   QString fakeBinDir;
   QString emptyBinDir;
+  QString brokenBinDir;  // a "minipro" that is executable but not a program
   QString logPath;
   QByteArray originalPath;
 };
@@ -135,6 +202,13 @@ void MainWindowTest::initTestCase() {
   QVERIFY(root.mkpath("work"));
   fakeBinDir = root.filePath("bin");
   emptyBinDir = root.filePath("empty");
+  QVERIFY(root.mkpath("broken"));
+  brokenBinDir = root.filePath("broken");
+  QFile broken(brokenBinDir + "/" + fakeFileName);
+  QVERIFY(broken.open(QFile::WriteOnly));
+  broken.write("not a program\n");
+  broken.close();
+  QVERIFY(broken.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
   logPath = root.filePath("calls.log");
 
   const QString fake = fakeBinDir + "/" + fakeFileName;
@@ -157,6 +231,7 @@ void MainWindowTest::init() {
   qunsetenv("FAKE_MINIPRO_INFO_FAIL");
   qunsetenv("FAKE_MINIPRO_CRLF");
   qunsetenv("FAKE_MINIPRO_LIST_EMPTY");
+  qunsetenv("FAKE_MINIPRO_LIST_BANNER");
   qunsetenv("FAKE_MINIPRO_TL866A");
   qunsetenv("FAKE_MINIPRO_FW_PROMPT_UNKNOWN");
   qunsetenv("FAKE_MINIPRO_IGNORE_TERM");
@@ -577,6 +652,29 @@ void MainWindowTest::readReportsMiniproFailingToStart() {
   QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
 }
 
+void MainWindowTest::readReportsMiniproThatCannotRun() {
+  // Found on PATH, but the system can't run it: QProcess reports FailedToStart, not finished().
+  auto mw = makeWindow();
+  qputenv("PATH", QDir::toNativeSeparators(brokenBinDir).toLocal8Bit());
+  mw->read_device();
+  QTRY_VERIFY(mw->async_process == nullptr);
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: could not start minipro: "));
+  QVERIFY(!mw->status_view->toPlainText().contains("it was not found"));
+  QCOMPARE(mw->hexViewModel.index(0, 0).data().toString(), QString("--"));
+  QVERIFY(mw->buttons.read->isEnabled());
+}
+
+void MainWindowTest::readWithoutTempFolderIsRefused() {
+  auto mw = makeWindow();
+  // A parent folder that doesn't exist: the private folder for the read can't be created.
+  mw->read_dir = QTemporaryDir(QDir(emptyBinDir).filePath("missing/read-XXXXXX"));
+  QVERIFY(!mw->read_dir.isValid());
+  mw->read_device();
+  QVERIFY(mw->status_view->toPlainText().contains("[Error]: no temporary folder for the read: "));
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter(" -r ").isEmpty());
+}
+
 void MainWindowTest::controlsDisabledWhileOperationRuns() {
   qputenv("FAKE_MINIPRO_DELAY", "1");
   auto mw = makeWindow();
@@ -730,6 +828,23 @@ void MainWindowTest::startFailureIsReportedNotParsed() {
   QVERIFY(pane.toPlainText().contains("[Error]: could not start minipro"));
   QVERIFY(!pane.toPlainText().contains("Start Error"));
   QVERIFY(!pane.toPlainText().contains("Finished Error"));
+}
+
+void MainWindowTest::queryReportsMiniproThatCannotRun() {
+  auto mw = makeWindow();
+  qputenv("PATH", QDir::toNativeSeparators(brokenBinDir).toLocal8Bit());
+  QPlainTextEdit pane;
+  QCOMPARE(MainWindow::run_process(pane, {"--version"}, "stderr"), QString());
+  QVERIFY(pane.toPlainText().contains("[Error]: could not start minipro: "));
+  QVERIFY(!pane.toPlainText().contains("it was not found"));
+}
+
+void MainWindowTest::deviceListSkipsSerialCodeBanner() {
+  // minipro prints its programmer and serial code lines to stderr, but if they reach stdout they
+  // must not become device names, and \e[K must not end up in one.
+  qputenv("FAKE_MINIPRO_LIST_BANNER", "1");
+  auto mw = makeWindow();
+  QCOMPARE(mw->devices_list, (QStringList{"27C256", "AT28C256", "W27C512"}));
 }
 
 void MainWindowTest::runCommandDoesNotBlockAndKeepsOrResetsView() {
@@ -977,6 +1092,93 @@ void MainWindowTest::checksDoNotAsk() {
   QTRY_VERIFY(mw->async_process == nullptr);
   QCOMPARE(asked, 0);
   QVERIFY(loggedCalls().last().contains("--blank_check"));
+}
+
+void MainWindowTest::firmwareDialogDefaultsToNo() {
+  MainWindow mw;  // the real confirmations, not makeWindow()'s
+  QString shown;
+  bool defaultIsNo = false;
+  whenModalOpens([&](QWidget *dialog) { answerMessageBox(dialog, QMessageBox::NoButton, &shown, &defaultIsNo); });
+  QVERIFY(!mw.confirmations.firmware_update("Found TL866II+ 04.2.132 (0x284)\n"));
+  QVERIFY(defaultIsNo);
+  QVERIFY2(shown.contains("Found TL866II+ 04.2.132 (0x284)"), qPrintable(shown));
+
+  whenModalOpens([&](QWidget *dialog) { answerMessageBox(dialog, QMessageBox::Yes, &shown, &defaultIsNo); });
+  QVERIFY(mw.confirmations.firmware_update("Found TL866II+ 04.2.132 (0x284)\n"));
+}
+
+void MainWindowTest::deviceChangeDialogDefaultsToNo() {
+  MainWindow mw;  // the real confirmations, not makeWindow()'s
+  QString shown;
+  bool defaultIsNo = false;
+  whenModalOpens([&](QWidget *dialog) { answerMessageBox(dialog, QMessageBox::NoButton, &shown, &defaultIsNo); });
+  QVERIFY(!mw.confirmations.device_change("Erase AT28C256?", "This erases the AT28C256."));
+  QVERIFY(defaultIsNo);
+  QCOMPARE(shown, QString("This erases the AT28C256."));
+
+  whenModalOpens([&](QWidget *dialog) { answerMessageBox(dialog, QMessageBox::Yes, &shown, &defaultIsNo); });
+  QVERIFY(mw.confirmations.device_change("Erase AT28C256?", "This erases the AT28C256."));
+}
+
+void MainWindowTest::writeAsksForAFile() {
+  auto mw = makeWindow();
+  mw->targets.device->setCurrentText("AT28C256");
+  int asked = 0;
+  mw->confirmations.device_change = [&asked](const QString &, const QString &) {
+    asked++;
+    return true;
+  };
+  // Cancelling the file dialog writes nothing and asks nothing.
+  bool opened = false;
+  whenModalOpens([&](QWidget *dialog) { answerFileDialog(dialog, {}, &opened); });
+  mw->write_device();
+  QVERIFY(opened);
+  QCOMPARE(asked, 0);
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter(" -w ").isEmpty());
+
+  // Choosing a file writes it, once confirmed.
+  const QString image = QDir(tempDir.path()).filePath("image.dat");
+  QFile file(image);
+  QVERIFY(file.open(QFile::WriteOnly));
+  file.close();
+  opened = false;
+  whenModalOpens([&](QWidget *dialog) { answerFileDialog(dialog, image, &opened); });
+  mw->write_device();
+  QVERIFY(opened);
+  QCOMPARE(asked, 1);
+  QTRY_VERIFY(mw->async_process == nullptr);
+  const QStringList writes = loggedCalls().filter(" -w ");
+  QCOMPARE(writes.size(), 1);
+  QVERIFY2(writes.first().startsWith("-p AT28C256 -w "), qPrintable(writes.first()));
+  // The dialog may name the file by another path to it (macOS's /var is /private/var).
+  QCOMPARE(QFileInfo(writes.first().mid(QString("-p AT28C256 -w ").size())).canonicalFilePath(),
+           QFileInfo(image).canonicalFilePath());
+}
+
+void MainWindowTest::updateFirmwareAsksForAFile() {
+  auto mw = makeWindow();
+  // Cancelling the file dialog starts nothing.
+  bool opened = false;
+  whenModalOpens([&](QWidget *dialog) { answerFileDialog(dialog, {}, &opened); });
+  mw->update_firmware();
+  QVERIFY(opened);
+  QVERIFY(mw->async_process == nullptr);
+  QVERIFY(loggedCalls().filter(QRegularExpression("^-F ")).isEmpty());
+
+  // Choosing a file starts minipro -F with it; makeWindow() declines the flash at its prompt.
+  const QString update = QDir(tempDir.path()).filePath("update.dat");
+  QFile file(update);
+  QVERIFY(file.open(QFile::WriteOnly));
+  file.close();
+  opened = false;
+  whenModalOpens([&](QWidget *dialog) { answerFileDialog(dialog, update, &opened); });
+  mw->update_firmware();
+  QVERIFY(opened);
+  QTRY_VERIFY(mw->async_process == nullptr);
+  const QStringList updates = loggedCalls().filter(QRegularExpression("^-F "));
+  QCOMPARE(updates.size(), 1);
+  QCOMPARE(QFileInfo(updates.first().mid(3)).canonicalFilePath(), QFileInfo(update).canonicalFilePath());
 }
 
 void MainWindowTest::emptyDeviceListDisablesDeviceOperations() {
